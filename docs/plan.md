@@ -98,7 +98,7 @@ Aides au repérage : **minimap 2D cliquable** (haut droite, avec position camér
 ## Hébergement et limites (Vercel)
 
 - Projet importé sur [vercel.com](https://vercel.com) depuis ce dépôt (privé, autorisé via l'app GitHub Vercel). Config dans `vercel.json` : preset Vite, build `npm run build`, output `dist`, rewrites SPA vers `index.html`. La base Vite reste `/` (pas de `VITE_BASE` nécessaire hors GitHub Pages).
-- Branche de production : `vibe/repo-structure-5c40ea`. Chaque push redéploie automatiquement ; les PR reçoivent une URL de preview.
+- Branche de production : `main`. Chaque push redéploie automatiquement ; les PR reçoivent une URL de preview.
 - URL : `https://<nom-du-projet>.vercel.app` (domaine perso gratuit ensuite dans les réglages Vercel).
 - Limites (offre gratuite) : 100 Go de bande passante/mo, fonctions serverless limitées — largement suffisant pour un site d'artiste. Images compressées de toute façon (KTX2/WebP prévus).
 - Bonus : les **fonctions serverless Vercel** (`api/`) pourront héberger plus tard le pont OAuth du CMS admin (git-gateway), sans serveur dédié.

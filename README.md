@@ -45,7 +45,7 @@ Le dépôt reste **privé** : GitHub Pages exigerait un dépôt public ou un pla
 
 1. Sur [vercel.com](https://vercel.com) : **Add New… → Project → Import Git Repository**, choisis `hijosamaa/Eric-houvenagel-art` (si le dépôt est privé, autorise l'app GitHub Vercel à y accéder).
 2. Le preset **Vite** est détecté automatiquement ; build command `npm run build`, output `dist` (déjà fixés dans `vercel.json`). Root Directory : racine du dépôt.
-3. Branche de production : `vibe/repo-structure-5c40ea` (celle en cours).
+3. Branche de production : `main`.
 4. Chaque push sur cette branche redéploie automatiquement le site sur `https://<nom-du-projet>.vercel.app`.
 
 Voir `docs/plan.md` pour l'architecture complète et `docs/style-guide.md` pour les décisions de style.
