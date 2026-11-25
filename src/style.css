@@ -723,6 +723,15 @@ img {
   #cursor {
     display: none;
   }
+  .mm-stop {
+    width: 30px;
+    height: 30px;
+    font-size: 11.5px;
+  }
+  .dot {
+    width: 30px;
+    height: 30px;
+  }
 }
 
 #brand,
@@ -785,22 +794,18 @@ img {
     transform-origin: right center;
   }
   #room-banner {
-    font-size: 16px;
-    top: 14px;
-    max-width: 72vw;
+    display: none;
   }
   #toast {
-    top: 58px;
+    top: auto;
+    bottom: 78px;
     font-size: 11.5px;
   }
   #dots {
-    bottom: 74px;
-    gap: 6px;
-    padding: 6px 10px;
+    display: none;
   }
-  .dot {
-    width: 24px;
-    height: 24px;
+  #p-room {
+    display: none;
   }
   #panel {
     top: 0;
@@ -819,21 +824,27 @@ img {
   }
   #hud-bottom {
     bottom: 12px;
-    gap: 7px;
-    padding: 6px 10px;
-    max-width: 96vw;
-    flex-wrap: wrap;
-    justify-content: center;
+    gap: 6px;
+    padding: 6px 8px;
+    max-width: 98vw;
+    flex-wrap: nowrap;
+    white-space: nowrap;
     border-radius: 18px;
   }
   .hud-btn {
     width: 38px;
     height: 38px;
+    flex: none;
   }
   .hud-btn.wide {
     height: 38px;
+    font-size: 10.5px;
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+  #progress {
+    min-width: 0;
     font-size: 11.5px;
-    padding: 0 12px;
   }
   #index-overlay {
     padding: 16px 16px 60px;
