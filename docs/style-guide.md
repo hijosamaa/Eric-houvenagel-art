@@ -18,7 +18,7 @@
 
 ## Typographie
 
-- **Titres** (nom de l'artiste, titres d'œuvres, bannière de salle) : *Cormorant Garamond* 600, fallback Georgia/serif.
+- **Titres** (nom de l'artiste, titres d'œuvres, bannière de salle) : *Fraunces* variable (opsz auto) 500/600 + italique 500, fallback Georgia/serif. Choisi en A/B contre Cormorant Garamond et Instrument Serif (voir `docs/revue-5.md`) : vrais poids 500/600 (Instrument Serif n'a que 400 → faux gras) et plus de caractère que Cormorant.
 - **UI** (boutons, métadonnées, progression) : *Inter* 400/500/600, fallback system-ui.
 - Lettrage espacé en petites capitales pour les sous-titres (« Galerie virtuelle », hints).
 
