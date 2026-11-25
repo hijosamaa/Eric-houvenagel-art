@@ -1,8 +1,6 @@
-name: Déployer sur Vercel
+name: Déployer sur Vercel (manuel)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
