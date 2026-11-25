@@ -50,7 +50,7 @@ async function boot(): Promise<void> {
   const small = Math.min(window.innerWidth, window.innerHeight) < 640;
   const fine = window.matchMedia('(pointer: fine)').matches;
   const pixelRatio = Math.min(window.devicePixelRatio, coarse || small ? 1.5 : 2);
-  const shadows = fine && !small;
+  const shadows = !coarse;
   const { renderer, scene, camera, spot } = createScene(canvas, layout, pixelRatio, { shadows });
   const entries = buildPaintings(scene, layout, shadows);
 
@@ -61,7 +61,7 @@ async function boot(): Promise<void> {
   controls.reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   controls.pickMeshes = entries.map((e) => e.imageMesh);
 
-  const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, layout);
+  const minimap = new Minimap(document.getElementById('minimap') as HTMLElement, layout);
 
   let panelWork: PlacedWork | null = null;
   let loaded = 0;
@@ -254,7 +254,7 @@ async function boot(): Promise<void> {
       ui.setProgress(idx + 1, layout.placed.length, cur.roomName);
       ui.setActiveDot(idx);
       spot.target = entries[idx].group;
-      spot.position.set(cur.x + (cur.side === 'right' ? -0.9 : 0.9), 3.15, cur.z);
+      spot.position.set(cur.x - 0.9, 3.15, cur.z);
     }
     const t = progressT(camZ);
     ui.setProgressBar(t);
@@ -275,11 +275,13 @@ async function boot(): Promise<void> {
       ui.closePanel();
       panelWork = null;
     }
-    minimap.draw(camZ, cur?.work.id ?? null, performance.now());
+    minimap.update(camZ, cur?.work.id ?? null);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
   tick();
+
+  (window as unknown as { __gallery: unknown }).__gallery = { renderer, scene, layout, controls };
 }
 
 boot();

@@ -94,14 +94,78 @@ body {
 
 #minimap {
   position: absolute;
-  top: 18px;
+  top: 50%;
   right: 18px;
+  transform: translateY(-50%);
   z-index: 10;
-  background: rgba(255, 253, 249, 0.9);
+  width: 84px;
+  background: rgba(255, 253, 249, 0.92);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(32, 36, 42, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(32, 36, 42, 0.12);
+  padding: 12px 8px 14px;
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+.mm-head {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+.mm-room {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  color: var(--accent);
+  margin: 5px 0 9px;
+  min-height: 15px;
+  line-height: 1.15;
+}
+.mm-track {
+  position: relative;
+  width: 2px;
+  height: 230px;
+  margin: 0 auto;
+  background: var(--line);
+  border-radius: 2px;
+}
+.mm-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.mm-stop {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid #9a9284;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
   cursor: pointer;
+  padding: 0;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s;
+}
+.mm-stop:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mm-stop.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  transform: translate(-50%, -50%) scale(1.25);
 }
 
 #room-banner {
@@ -632,10 +696,9 @@ body {
     font-size: 20px;
   }
   #minimap {
-    top: 12px;
-    right: 12px;
-    transform: scale(0.82);
-    transform-origin: top right;
+    right: 10px;
+    transform: translateY(-50%) scale(0.85);
+    transform-origin: right center;
   }
   #room-banner {
     font-size: 16px;

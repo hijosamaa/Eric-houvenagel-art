@@ -79,7 +79,7 @@ export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: bool
   return layout.placed.map((p) => {
     const group = new THREE.Group();
     group.position.set(p.x, p.y, p.z);
-    group.rotation.y = p.side === 'right' ? -Math.PI / 2 : Math.PI / 2;
+    group.rotation.y = -Math.PI / 2;
 
     const frame = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.16, p.h + 0.16, 0.08), frameMat);
     frame.castShadow = shadows;

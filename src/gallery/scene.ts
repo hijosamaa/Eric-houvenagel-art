@@ -111,7 +111,7 @@ export function createScene(
   pmrem.dispose();
 
   const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 120);
-  camera.position.set(0, 1.6, Z_START);
+  camera.position.set(2.7, 1.6, Z_START);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4b2, 0.5));
 
@@ -138,7 +138,7 @@ export function createScene(
   }
 
   const spot = new THREE.SpotLight(0xfff1da, 30, 14, 0.6, 0.8, 1.6);
-  spot.position.set(0, HALL_HEIGHT - 0.25, Z_START - 2);
+  spot.position.set(4, HALL_HEIGHT - 0.25, Z_START - 2);
   if (opts.shadows) {
     spot.castShadow = true;
     spot.shadow.mapSize.set(1024, 1024);
@@ -176,6 +176,13 @@ export function createScene(
     envMapIntensity: 0.7,
   });
   const trim = new THREE.MeshStandardMaterial({ color: 0xf8f4ec, roughness: 0.9, envMapIntensity: 0.4 });
+  const runnerMat = new THREE.MeshStandardMaterial({
+    map: noiseTexture('#454c55', 8000, 512),
+    roughness: 1,
+    envMapIntensity: 0.15,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
 
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh => {
     const m = new THREE.Mesh(geo, mat);
@@ -190,6 +197,9 @@ export function createScene(
   const ceil = add(new THREE.PlaneGeometry(HALL_WIDTH, len), ceilMat, 0, HALL_HEIGHT, cz);
   ceil.rotation.x = Math.PI / 2;
 
+  const runner = add(new THREE.PlaneGeometry(3.2, len - 1.5), runnerMat, 3.4, 0.006, cz);
+  runner.rotation.x = -Math.PI / 2;
+
   add(new THREE.BoxGeometry(0.25, HALL_HEIGHT, len), plaster, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
   add(new THREE.BoxGeometry(0.25, HALL_HEIGHT, len), plaster, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
   add(new THREE.BoxGeometry(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25), plaster, 0, HALL_HEIGHT / 2, zMax);
@@ -202,6 +212,8 @@ export function createScene(
   skylight.rotation.x = Math.PI / 2;
   skylight.position.set(0, HALL_HEIGHT - 0.01, cz);
   scene.add(skylight);
+  add(new THREE.BoxGeometry(0.08, 0.03, len * 0.94), trim, -HALL_WIDTH * 0.21, HALL_HEIGHT - 0.005, cz);
+  add(new THREE.BoxGeometry(0.08, 0.03, len * 0.94), trim, HALL_WIDTH * 0.21, HALL_HEIGHT - 0.005, cz);
 
   const inner = HALL_WIDTH / 2 - 0.125;
   add(new THREE.BoxGeometry(0.05, 0.16, len), trim, -inner + 0.045, 0.08, cz);
@@ -209,14 +221,23 @@ export function createScene(
   add(new THREE.BoxGeometry(0.07, 0.14, len), trim, -inner + 0.05, HALL_HEIGHT - 0.07, cz);
   add(new THREE.BoxGeometry(0.07, 0.14, len), trim, inner - 0.05, HALL_HEIGHT - 0.07, cz);
 
+  add(new THREE.BoxGeometry(0.05, 0.06, len), trim, -HALL_WIDTH / 2 + 0.04, 2.3, cz);
+  for (let z = zMin + 2; z < zMax - 1; z += 2.8) {
+    add(new THREE.BoxGeometry(0.04, 1.9, 2.2), trim, -HALL_WIDTH / 2 + 0.035, 1.15, z);
+  }
+
+  const benchX = -HALL_WIDTH / 2 + 0.38;
+  const seat = add(new THREE.BoxGeometry(0.5, 0.09, 1.8), wood, benchX, 0.45, cz);
+  const legA = add(new THREE.BoxGeometry(0.42, 0.4, 0.08), wood, benchX, 0.2, cz - 0.8);
+  const legB = add(new THREE.BoxGeometry(0.42, 0.4, 0.08), wood, benchX, 0.2, cz + 0.8);
+  for (const m of [seat, legA, legB]) m.castShadow = opts.shadows;
+
   for (let i = 0; i < layout.zones.length - 1; i++) {
     const z = layout.zones[i].zMax;
     const p1 = add(new THREE.BoxGeometry(0.35, HALL_HEIGHT, 0.35), wood, -HALL_WIDTH / 2 + 0.3, HALL_HEIGHT / 2, z);
     const p2 = add(new THREE.BoxGeometry(0.35, HALL_HEIGHT, 0.35), wood, HALL_WIDTH / 2 - 0.3, HALL_HEIGHT / 2, z);
     const lintel = add(new THREE.BoxGeometry(HALL_WIDTH - 0.6, 0.45, 0.35), wood, 0, HALL_HEIGHT - 0.225, z);
-    p1.castShadow = opts.shadows;
-    p2.castShadow = opts.shadows;
-    lintel.castShadow = opts.shadows;
+    for (const m of [p1, p2, lintel]) m.castShadow = opts.shadows;
     const plaque = new THREE.Mesh(
       new THREE.PlaneGeometry(2.6, 0.65),
       new THREE.MeshBasicMaterial({ map: plaqueTexture(layout.zones[i + 1].name) }),

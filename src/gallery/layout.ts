@@ -3,15 +3,15 @@ import type { GalleryData } from '../types';
 export const HALL_WIDTH = 12;
 export const HALL_HEIGHT = 3.4;
 export const WALL_Y = 1.55;
-export const SLOT_SPACING = 3.4;
+export const SLOT_SPACING = 3.0;
 export const Z_FIRST = 1.5;
 export const Z_START = 5.5;
 export const Z_END_MARGIN = 4.5;
 export const VIEW_DIST = 2.6;
+export const PATH_X = (HALL_WIDTH / 2 - VIEW_DIST) * 0.8;
 
 export interface PlacedWork {
   work: GalleryData['works'][number];
-  side: 'left' | 'right';
   x: number;
   y: number;
   z: number;
@@ -54,28 +54,23 @@ export function computeLayout(data: GalleryData): Layout {
   const zEnd = zLast - Z_END_MARGIN;
 
   const placed: PlacedWork[] = works.map((work, i) => {
-    const side: 'left' | 'right' = i % 2 === 0 ? 'right' : 'left';
     const z = Z_FIRST - i * SLOT_SPACING;
-    let w = 1.45 * work.ratio;
-    let h = 1.45;
-    if (w > 2.3) {
-      w = 2.3;
+    let w = 1.5 * work.ratio;
+    let h = 1.5;
+    if (w > 2.4) {
+      w = 2.4;
       h = w / work.ratio;
     }
-    const x = side === 'right' ? HALL_WIDTH / 2 - 0.08 : -HALL_WIDTH / 2 + 0.08;
-    const viewX = side === 'right' ? HALL_WIDTH / 2 - VIEW_DIST : -HALL_WIDTH / 2 + VIEW_DIST;
-    const scrollT = Math.min(1, Math.max(0, (Z_START - z) / (Z_START - zEnd)));
     return {
       work,
-      side,
-      x,
+      x: HALL_WIDTH / 2 - 0.08,
       y: WALL_Y,
       z,
       w,
       h,
-      viewX,
+      viewX: HALL_WIDTH / 2 - VIEW_DIST,
       viewZ: z,
-      scrollT,
+      scrollT: 0,
       roomName: roomNameOf(work.room),
     };
   });

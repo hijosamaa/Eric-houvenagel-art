@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALL_WIDTH, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
+import { HALL_WIDTH, PATH_X, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
 
 export type Mode = 'guided' | 'free';
 
@@ -33,8 +33,8 @@ export class GalleryControls {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
   private readonly curve: THREE.CatmullRomCurve3;
-  private readonly pos = new THREE.Vector3(0, 1.6, Z_START);
-  private readonly lookVec = new THREE.Vector3(0, WALL_Y, Z_START - 4);
+  private readonly pos = new THREE.Vector3(PATH_X, 1.6, Z_START);
+  private readonly lookVec = new THREE.Vector3(HALL_WIDTH / 2, WALL_Y, Z_START - 4);
   private targetT = 0;
   private t = 0;
   private yaw = 0;
@@ -47,11 +47,11 @@ export class GalleryControls {
     this.camera = camera;
     this.layout = layout;
 
-    const pts: THREE.Vector3[] = [new THREE.Vector3(0, 1.6, Z_START + 1.2)];
+    const pts: THREE.Vector3[] = [new THREE.Vector3(PATH_X, 1.6, Z_START + 1.2)];
     for (const p of layout.placed) {
-      pts.push(new THREE.Vector3(p.viewX * 0.55, 1.6, p.viewZ));
+      pts.push(new THREE.Vector3(PATH_X, 1.6, p.viewZ));
     }
-    pts.push(new THREE.Vector3(0, 1.6, layout.zEnd + 1.2));
+    pts.push(new THREE.Vector3(PATH_X, 1.6, layout.zEnd + 1.2));
     this.curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.6);
 
     const N = 240;
@@ -102,10 +102,6 @@ export class GalleryControls {
     return this.pos.z;
   }
 
-  currentT(): number {
-    return this.t;
-  }
-
   setMode(mode: Mode): void {
     this.mode = mode;
     this.focusAnim = null;
@@ -144,11 +140,8 @@ export class GalleryControls {
       else this.t += (this.targetT - this.t) * Math.min(1, dt * 6);
       this.curve.getPointAt(clamp(this.t, 0, 1), this.pos);
       this.camera.position.copy(this.pos);
-      const idx = this.currentIndex();
-      const p = this.layout.placed[idx];
-      const target = p ? new THREE.Vector3(p.x, WALL_Y, p.z) : new THREE.Vector3(0, WALL_Y, this.pos.z - 4);
-      const k = this.reduced ? 1 : Math.min(1, dt * 2.6);
-      this.lookVec.lerp(target, k);
+      const k = this.reduced ? 1 : Math.min(1, dt * 2.2);
+      this.lookVec.lerp(this.lookTarget(), k);
       this.camera.lookAt(this.lookVec);
     } else {
       const pos = this.camera.position;
@@ -187,12 +180,19 @@ export class GalleryControls {
     }
   }
 
-  private currentIndex(): number {
+  private lookTarget(): THREE.Vector3 {
     const ps = this.layout.placed;
-    if (ps.length === 0) return 0;
-    let passed = 0;
-    for (const p of ps) if (p.z > this.pos.z) passed++;
-    return Math.min(passed, ps.length - 1);
+    if (ps.length === 0) return new THREE.Vector3(0, WALL_Y, this.pos.z - 4);
+    let best = ps[0];
+    let bd = Infinity;
+    for (const p of ps) {
+      const d = Math.abs(p.z - this.pos.z);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return new THREE.Vector3(best.x, WALL_Y, best.z);
   }
 
   private readScroll(): void {
