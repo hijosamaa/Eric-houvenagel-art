@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALL_WIDTH, PATH_X, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
+import { HALL_WIDTH, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
 
 export type Mode = 'guided' | 'free';
 
@@ -33,7 +33,7 @@ export class GalleryControls {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
   private readonly curve: THREE.CatmullRomCurve3;
-  private readonly pos = new THREE.Vector3(PATH_X, 1.6, Z_START);
+  private readonly pos: THREE.Vector3;
   private readonly lookVec = new THREE.Vector3(HALL_WIDTH / 2, WALL_Y, Z_START - 4);
   private targetT = 0;
   private t = 0;
@@ -47,11 +47,12 @@ export class GalleryControls {
     this.camera = camera;
     this.layout = layout;
 
-    const pts: THREE.Vector3[] = [new THREE.Vector3(PATH_X, 1.6, Z_START + 1.2)];
+    this.pos = new THREE.Vector3(layout.pathX, 1.6, Z_START);
+    const pts: THREE.Vector3[] = [new THREE.Vector3(layout.pathX, 1.6, Z_START + 1.2)];
     for (const p of layout.placed) {
-      pts.push(new THREE.Vector3(PATH_X, 1.6, p.viewZ));
+      pts.push(new THREE.Vector3(layout.pathX, 1.6, p.viewZ));
     }
-    pts.push(new THREE.Vector3(PATH_X, 1.6, layout.zEnd + 1.2));
+    pts.push(new THREE.Vector3(layout.pathX, 1.6, layout.zEnd + 1.2));
     this.curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.6);
 
     const N = 240;

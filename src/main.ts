@@ -45,11 +45,13 @@ async function boot(): Promise<void> {
     }
   }
 
-  const layout = computeLayout(data);
   const coarse = window.matchMedia('(pointer: coarse)').matches;
   const small = Math.min(window.innerWidth, window.innerHeight) < 640;
   const fine = window.matchMedia('(pointer: fine)').matches;
-  const pixelRatio = Math.min(window.devicePixelRatio, coarse || small ? 1.5 : 2);
+  const touch = coarse || small;
+  const viewDist = touch ? 4.2 : 2.6;
+  const layout = computeLayout(data, viewDist);
+  const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
   const shadows = !coarse;
   const { renderer, scene, camera, spot } = createScene(canvas, layout, pixelRatio, { shadows });
   const entries = buildPaintings(scene, layout, shadows);
@@ -124,6 +126,7 @@ async function boot(): Promise<void> {
       onEnter: () => {
         entered = true;
         ui.hideIntro();
+        document.getElementById('app')?.classList.add('ready');
         ui.toast("Faites défiler pour avancer · cliquez sur un tableau ou son numéro pour l'observer", 8000);
       },
       onClosePanel: () => {
@@ -187,6 +190,11 @@ async function boot(): Promise<void> {
     if (e.code === 'Enter' && !entered) {
       const b = document.getElementById('btn-enter') as HTMLButtonElement | null;
       if (b && !b.disabled) b.click();
+      return;
+    }
+    if (ui.lightboxIsOpen()) {
+      if (e.code === 'Equal' || e.code === 'NumpadAdd') ui.lbZoom(1);
+      if (e.code === 'Minus' || e.code === 'NumpadSubtract') ui.lbZoom(-1);
     }
   });
 
@@ -203,7 +211,13 @@ async function boot(): Promise<void> {
 
   let mouseNdc: THREE.Vector2 | null = null;
   let hoverDirty = false;
+  let hoverId: string | null = null;
+  const cursor = document.getElementById('cursor');
+  const cursorPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  const cursorTarget = { x: cursorPos.x, y: cursorPos.y };
   window.addEventListener('pointermove', (e) => {
+    cursorTarget.x = e.clientX;
+    cursorTarget.y = e.clientY;
     if (!fine) return;
     const rect = canvas.getBoundingClientRect();
     mouseNdc = new THREE.Vector2(
@@ -211,6 +225,9 @@ async function boot(): Promise<void> {
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
     );
     hoverDirty = true;
+  });
+  window.addEventListener('mouseleave', () => {
+    if (cursor) cursor.style.opacity = '0';
   });
 
   entries.forEach((e) =>
@@ -221,8 +238,12 @@ async function boot(): Promise<void> {
   );
 
   function resize(): void {
-    renderer.setSize(window.innerWidth, window.innerHeight, false);
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    const aspect = w / h;
+    camera.aspect = aspect;
+    camera.fov = aspect < 1 ? Math.min(74, 62 / Math.sqrt(aspect)) : 58;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
@@ -244,9 +265,16 @@ async function boot(): Promise<void> {
       hoverDirty = false;
       ray.setFromCamera(mouseNdc, camera);
       const hits = ray.intersectObjects(controls.pickMeshes, false);
-      const id = (hits[0]?.object.userData.workId as string | undefined) ?? null;
-      setHovered(id, entries);
-      canvas.style.cursor = id ? 'pointer' : 'grab';
+      hoverId = (hits[0]?.object.userData.workId as string | undefined) ?? null;
+      setHovered(hoverId, entries);
+      canvas.style.cursor = hoverId ? 'pointer' : 'grab';
+    }
+    if (cursor && fine) {
+      cursorPos.x += (cursorTarget.x - cursorPos.x) * Math.min(1, dt * 12);
+      cursorPos.y += (cursorTarget.y - cursorPos.y) * Math.min(1, dt * 12);
+      cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
+      cursor.style.opacity = '1';
+      cursor.classList.toggle('big', hoverId !== null);
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];

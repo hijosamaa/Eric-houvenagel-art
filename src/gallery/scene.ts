@@ -98,7 +98,7 @@ export function createScene(
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(pixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
+  renderer.toneMappingExposure = 1.12;
   renderer.shadowMap.enabled = opts.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -113,13 +113,13 @@ export function createScene(
   const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 120);
   camera.position.set(2.7, 1.6, Z_START);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4b2, 0.5));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4b2, 0.42));
 
   const { zMin, zMax } = hallBounds(layout);
   const len = zMax - zMin;
   const cz = (zMin + zMax) / 2;
 
-  const sun = new THREE.DirectionalLight(0xfff2df, 2.4);
+  const sun = new THREE.DirectionalLight(0xfff2df, 2.9);
   sun.position.set(0, 15, cz);
   sun.target.position.set(0, 0, cz);
   scene.add(sun);

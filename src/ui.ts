@@ -34,6 +34,7 @@ export interface UI {
   panelIsOpen(): boolean;
   openLightbox(p: PlacedWork): void;
   lbNav(dir: 1 | -1): PlacedWork | null;
+  lbZoom(dir: 1 | -1): void;
   closeLightbox(): void;
   lightboxIsOpen(): boolean;
   showEnd(v: boolean): void;
@@ -81,6 +82,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('panel-prev').addEventListener('click', cb.onPrev);
   $('panel-next').addEventListener('click', cb.onNext);
   $('panel-zoom').addEventListener('click', cb.onZoom);
+  ($('panel-img') as HTMLImageElement).addEventListener('click', cb.onZoom);
   $('lb-close').addEventListener('click', () => lightbox.classList.add('hidden'));
   $('lb-prev').addEventListener('click', cb.onPrev);
   $('lb-next').addEventListener('click', cb.onNext);
@@ -107,11 +109,38 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     }
   });
 
+  let touchX = 0;
+  let touchY = 0;
+  lightbox.addEventListener(
+    'touchstart',
+    (e) => {
+      touchX = e.touches[0].clientX;
+      touchY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  lightbox.addEventListener(
+    'touchend',
+    (e) => {
+      const dx = e.changedTouches[0].clientX - touchX;
+      const dy = e.changedTouches[0].clientY - touchY;
+      if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0) cb.onNext();
+        else cb.onPrev();
+      }
+    },
+    { passive: true },
+  );
+
+  function applyZoom(): void {
+    lbImg.style.transform = `scale(${zoom})`;
+    lbImg.style.cursor = zoom > 1 ? 'zoom-out' : 'zoom-in';
+  }
+
   function showLightbox(p: PlacedWork): void {
     lbId = p.work.id;
     zoom = 1;
-    lbImg.style.transform = 'scale(1)';
-    lbImg.style.cursor = 'zoom-in';
+    applyZoom();
     lbImg.src = baseUrl + p.work.image;
     lbImg.alt = p.work.title;
     $('lb-title').textContent = p.work.title;
@@ -120,6 +149,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       .join(' · ');
     $('lb-meta').textContent = bits;
     lightbox.classList.remove('hidden');
+    ($('lb-close') as HTMLButtonElement).focus();
   }
 
   return {
@@ -155,6 +185,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       for (let i = 0; i < n; i++) {
         const b = document.createElement('button');
         b.className = 'dot';
+        b.type = 'button';
         b.textContent = String(i + 1);
         b.setAttribute('aria-label', `Aller à l'œuvre ${i + 1}`);
         b.addEventListener('click', () => onPick(i));
@@ -184,6 +215,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
         for (const p of group.works) {
           const card = document.createElement('button');
           card.className = 'index-card';
+          card.type = 'button';
           const img = document.createElement('img');
           img.src = base + p.work.image;
           img.alt = p.work.title;
@@ -218,6 +250,9 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       const img = $('panel-img') as HTMLImageElement;
       img.src = baseUrl + p.work.image;
       img.alt = p.work.title;
+      const idx = works.findIndex((w) => w.work.id === p.work.id);
+      $('panel-num').textContent = works.length > 0 && idx >= 0 ? `Œuvre ${idx + 1} / ${works.length}` : '';
+      $('panel-room').textContent = p.roomName;
       $('panel-title').textContent = p.work.title;
       const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
         .filter(Boolean)
@@ -240,6 +275,10 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       const next = works[(idx + dir + works.length) % works.length];
       showLightbox(next);
       return next;
+    },
+    lbZoom(dir) {
+      zoom = Math.min(3, Math.max(1, zoom + dir * 0.5));
+      applyZoom();
     },
     closeLightbox() {
       lightbox.classList.add('hidden');

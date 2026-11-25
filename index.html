@@ -53,6 +53,7 @@
 
       <aside id="panel" aria-label="Fiche de l'œuvre">
         <button id="panel-close" aria-label="Fermer la fiche">×</button>
+        <p id="panel-kicker"><span id="panel-num"></span><span id="panel-room"></span></p>
         <img id="panel-img" alt="" />
         <h2 id="panel-title"></h2>
         <p id="panel-meta"></p>
@@ -112,6 +113,8 @@
       </div>
 
       <div id="progress-bar" aria-hidden="true"><div id="progress-fill"></div></div>
+      <div class="grain" aria-hidden="true"></div>
+      <div id="cursor" aria-hidden="true"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

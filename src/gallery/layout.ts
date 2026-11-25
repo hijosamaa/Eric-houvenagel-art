@@ -8,7 +8,6 @@ export const Z_FIRST = 1.5;
 export const Z_START = 5.5;
 export const Z_END_MARGIN = 4.5;
 export const VIEW_DIST = 2.6;
-export const PATH_X = (HALL_WIDTH / 2 - VIEW_DIST) * 0.8;
 
 export interface PlacedWork {
   work: GalleryData['works'][number];
@@ -32,6 +31,7 @@ export interface Zone {
 
 export interface Layout {
   zEnd: number;
+  pathX: number;
   placed: PlacedWork[];
   zones: Zone[];
 }
@@ -40,7 +40,7 @@ export function hallBounds(layout: Layout): { zMin: number; zMax: number } {
   return { zMin: layout.zEnd - 2, zMax: Z_START + 3 };
 }
 
-export function computeLayout(data: GalleryData): Layout {
+export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
   const rooms = [...data.rooms].sort((a, b) => a.order - b.order);
   const roomIndexOf = (id: string): number => {
     const i = rooms.findIndex((r) => r.id === id);
@@ -52,6 +52,7 @@ export function computeLayout(data: GalleryData): Layout {
   );
   const zLast = Z_FIRST - Math.max(0, works.length - 1) * SLOT_SPACING;
   const zEnd = zLast - Z_END_MARGIN;
+  const pathX = (HALL_WIDTH / 2 - viewDist) * 0.8;
 
   const placed: PlacedWork[] = works.map((work, i) => {
     const z = Z_FIRST - i * SLOT_SPACING;
@@ -68,7 +69,7 @@ export function computeLayout(data: GalleryData): Layout {
       z,
       w,
       h,
-      viewX: HALL_WIDTH / 2 - VIEW_DIST,
+      viewX: HALL_WIDTH / 2 - viewDist,
       viewZ: z,
       scrollT: 0,
       roomName: roomNameOf(work.room),
@@ -86,5 +87,5 @@ export function computeLayout(data: GalleryData): Layout {
     };
   });
 
-  return { zEnd, placed, zones };
+  return { zEnd, pathX, placed, zones };
 }
