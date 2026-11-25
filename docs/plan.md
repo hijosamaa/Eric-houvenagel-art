@@ -7,7 +7,7 @@ Site statique présentant les tableaux (huile & aquarelle) d'Eric Houvenagel dan
 ## Stack retenue
 
 - **Vite + TypeScript + Three.js (vanilla)** — pas de framework UI, bundle léger.
-- **Hébergement : GitHub Pages** (gratuit, HTTPS, domaine perso possible), déployé par GitHub Actions (`.github/workflows/deploy.yml`) à chaque push.
+- **Hébergement : Vercel** (gratuit, HTTPS, domaine perso gratuit), déploiement automatique à chaque push sur la branche de production. Choisi plutôt que GitHub Pages car le dépôt reste privé (Pages exige un dépôt public ou un plan payant pour les dépôts privés).
 - **Mode admin : CMS headless** (Decap CMS, ou Sveltia CMS) adossé au dépôt GitHub, servi dans `admin/`.
 
 Pourquoi pas autre chose : pas de serveur nécessaire (tout est statique + données JSON dans le dépôt), coût nul, déploiement auto, et l'admin committe directement dans le même repo que le site.
@@ -92,18 +92,20 @@ Aides au repérage : **minimap 2D cliquable** (haut droite, avec position camér
 ## Mode administrateur (sans code, sans IA)
 
 - **Decap CMS** servi depuis `admin/` du site, collection « works » : image (upload), titre, année, médium, dimensions, description, salle (select), ordre (champ numérique, réordonnable par glisser-déposer côté liste).
-- Backend GitHub : OAuth via git-gateway (micro-service gratuit, ex. Cloudflare Worker) **ou** Sveltia CMS avec flux PKCE sur une OAuth App GitHub (zéro serveur). Le CMS committe image + JSON dans le dépôt → l'Action GitHub Pages redéploie le site automatiquement.
+- Backend GitHub : OAuth via git-gateway (micro-service gratuit, ex. Cloudflare Worker) **ou** Sveltia CMS avec flux PKCE sur une OAuth App GitHub (zéro serveur). Le CMS committe image + JSON dans le dépôt → Vercel redéploie le site automatiquement.
 - **Fallback zéro-infra** : upload manuel de l'image dans `data/works/images/` + édition du JSON via l'interface GitHub (bouton « Edit »), possible depuis le mobile.
 
-## Hébergement et limites
+## Hébergement et limites (Vercel)
 
-- GitHub Pages (projet) : `https://hijosamaa.github.io/Eric-houvenagel-art/`, base Vite réglée via `VITE_BASE` dans le workflow.
-- Limites : site statique uniquement, ~1 Go, 100 Go/mo de bande (souple), fichiers > 100 Mo à éviter (on compresse les images de toute façon). Si le trafic dépasse : migration triviale vers Cloudflare Pages (bande illimitée, gratuit).
-- Domaine perso : à acheter plus tard, CNAME + réglage Pages (base repassée à `/`).
+- Projet importé sur [vercel.com](https://vercel.com) depuis ce dépôt (privé, autorisé via l'app GitHub Vercel). Config dans `vercel.json` : preset Vite, build `npm run build`, output `dist`, rewrites SPA vers `index.html`. La base Vite reste `/` (pas de `VITE_BASE` nécessaire hors GitHub Pages).
+- Branche de production : `vibe/repo-structure-5c40ea`. Chaque push redéploie automatiquement ; les PR reçoivent une URL de preview.
+- URL : `https://<nom-du-projet>.vercel.app` (domaine perso gratuit ensuite dans les réglages Vercel).
+- Limites (offre gratuite) : 100 Go de bande passante/mo, fonctions serverless limitées — largement suffisant pour un site d'artiste. Images compressées de toute façon (KTX2/WebP prévus).
+- Bonus : les **fonctions serverless Vercel** (`api/`) pourront héberger plus tard le pont OAuth du CMS admin (git-gateway), sans serveur dédié.
 
 ## Roadmap
 
-1. ✅ Squelette : scène 3D + galerie data-driven + 5 œuvres de démo + navigation guidée/libre + minimap + panneau + lightbox + déploiement Pages.
+1. ✅ Squelette : scène 3D + galerie data-driven + 5 œuvres de démo + navigation guidée/libre + minimap + panneau + lightbox + déploiement continu Vercel.
 2. ⏭️ Itération « admin » : `admin/` (Decap/Sveltia), schéma par-fichier `data/works/*.json`, upload image + réordonnancement.
 3. ⏭️ Itération « mobile/perf » : contrôles tactiles affinés, KTX2/WebP, LOD, test sur vrais téléphones.
 4. ⏭️ Itération « contenu » : remplacer les images de démo (captures Instagram rognées) par les photos originales des œuvres via l'admin ; bio de l'artiste, page « À propos », contact.
