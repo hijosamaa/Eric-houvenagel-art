@@ -32,7 +32,7 @@ async function boot(): Promise<void> {
   document.title = `${data.artist} — Galerie virtuelle`;
   const og = document.querySelector('meta[property="og:image"]');
   if (og && data.works.length > 0) {
-    og.setAttribute('content', location.origin + base + data.works[0].image);
+    og.setAttribute('content', location.origin + base + (data.works[0].imageFull || data.works[0].image));
   }
 
   const strip = document.getElementById('intro-strip');

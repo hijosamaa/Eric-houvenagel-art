@@ -7,11 +7,13 @@ Site galerie virtuelle en 3D présentant les tableaux (huile et aquarelle) d'Eri
 | Dossier | Rôle |
 |---|---|
 | racine | Le site statique (Vite + TypeScript + Three.js) : `index.html`, `src/`, `public/` |
-| `public/data/` | Données de la galerie (`works.json`) et images des œuvres |
-| `references/` | Photos de tableaux de référence fournies par l'artiste |
-| `docs/` | Plan d'implémentation (`plan.md`) et guide de style (`style-guide.md`) |
-| `data/` | Réservé aux données éditées via le mode admin (schéma CMS à venir) |
-| `admin/` | À venir : CMS headless d'administration |
+| `public/data/` | **Généré au build** (gitignoré) : `works.json` + images optimisées, produits par `scripts/build-data.mjs` |
+| `references/` | Photos originales des tableaux (source HD, déposées ici par l'artiste ou via l'admin) |
+| `data/` | Données éditées via l'admin : `site.json`, `rooms/*.json`, `works/*.json` |
+| `public/admin/` | CMS Decap servi à `/admin/` (config dans `public/admin/config.yml`) |
+| `api/` | Fonctions serverless Vercel du pont OAuth GitHub (`auth` / `callback`) |
+| `scripts/` | `build-data.mjs` : data/ + references/ → public/data/ optimisé (sharp) |
+| `docs/` | Plan (`plan.md`, `plan-dev-v2.md`), guide de style, admin (`admin.md`), revues |
 
 ## Ajouter des tableaux de référence
 
@@ -47,6 +49,12 @@ Hébergement sur **Vercel** (gratuit, HTTPS, domaine perso gratuit) — choisi p
 
 Voir `docs/plan.md` pour l'architecture complète et `docs/style-guide.md` pour les décisions de style.
 
-## Mode administrateur (à venir)
+## Mode administrateur (sans code, sans IA)
 
-Un CMS headless (interface web d'administration dans `admin/`) permettra de publier un tableau depuis une image, de changer l'ordre des œuvres et d'éditer titre, année, technique, dimensions et description — sans toucher au code. Le détail technique sera décrit dans `docs/plan.md`.
+Ouvrir **`https://<projet>.vercel.app/admin/`** → connexion GitHub (OAuth) → publier
+une œuvre depuis une image, réordonner, éditer titre/année/technique/dimensions/
+description. L'admin (Decap CMS) committe dans `data/` + `references/` sur `main` ;
+le build régénère `public/data/` (images optimisées) et Vercel redéploie.
+
+Mise en place initiale (créer l'OAuth App GitHub + 2 variables d'environnement Vercel)
+détaillée dans **`docs/admin.md`**.

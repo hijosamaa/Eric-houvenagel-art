@@ -10,3 +10,4 @@ coverage/
 .vercel/
 !.vercel/project.json
 .vibe/
+public/data/

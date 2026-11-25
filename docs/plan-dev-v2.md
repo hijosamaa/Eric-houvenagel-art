@@ -80,15 +80,15 @@ cibles tactiles ≥ 24 px (idéal 38+).
 - Option KTX2/Basis pour les textures 3D si besoin de perf, sinon WebP suffit pour
   les toiles (ce sont des textures planes).
 
-### Itération E — Mode administrateur sans code ni IA
-- Decap CMS (ou Sveltia) dans `admin/`, schéma : un JSON par œuvre dans `data/works/`
-  + `index.json` ; champs : image (upload), titre, année, technique, dimensions,
-  description, salle, ordre (drag & drop).
-- Pont OAuth : fonction serverless Vercel (`api/`) avec GitHub OAuth (le repo est
-  public mais l'admin écrit → il faut un token ; GitHub OAuth device flow ou App OAuth).
-- Preview de déploiement Vercel par branche de l'admin.
-- **Validation** : publier/réordonner/éditer une œuvre depuis un téléphone, sans code,
-  et voir le site public mis à jour.
+### Itération E — Mode administrateur sans code ni IA ✅ (commit revue-7, `docs/revue-7.md`)
+- Decap CMS servi à `/admin/` (`public/admin/`), git-gateway branche `main`, média
+  dans `references/`, collections site / salles / œuvres (relation salle, ordre).
+- Pont OAuth GitHub en fonctions serverless Vercel `api/auth.js` + `api/callback.js`.
+- `scripts/build-data.mjs` (sharp) : `data/` + `references/` → `public/data/`
+  optimisé (gitignoré), exécuté en `predev`/`prebuild`.
+- **Validation faite** : build OK, fonctions testées avec mocks, 18 screenshots
+  0 erreur. **Reste côté propriétaire** : créer l'OAuth App + 2 variables Vercel
+  (`docs/admin.md`), puis test réel : publier/réordonner/éditer depuis un téléphone.
 
 ### Itération F — Déploiement, domaine, SEO
 - Confirmer le déploiement Vercel (branche de prod = `main`), domaine perso si souhaité.

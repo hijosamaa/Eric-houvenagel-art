@@ -14,6 +14,7 @@ export interface Work {
   room: string;
   order: number;
   image: string;
+  imageFull: string;
   ratio: number;
 }
 

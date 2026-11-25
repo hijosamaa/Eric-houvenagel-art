@@ -141,7 +141,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     lbId = p.work.id;
     zoom = 1;
     applyZoom();
-    lbImg.src = baseUrl + p.work.image;
+    lbImg.src = baseUrl + (p.work.imageFull || p.work.image);
     lbImg.alt = p.work.title;
     $('lb-title').textContent = p.work.title;
     const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]

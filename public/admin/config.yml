@@ -1,0 +1,51 @@
+backend:
+  name: git-gateway
+  branch: main
+
+media_folder: references
+public_folder: /data/images
+
+collections:
+  - name: site
+    label: Paramètres du site
+    files:
+      - name: site
+        label: Identité
+        file: data/site.json
+        fields:
+          - { label: "Nom de l'artiste", name: artist, widget: string }
+          - { label: Accroche, name: tagline, widget: string }
+
+  - name: rooms
+    label: Salles
+    folder: data/rooms
+    create: true
+    delete: true
+    slug: "{{slug}}"
+    identifier_field: name
+    fields:
+      - { label: "Nom de la salle", name: name, widget: string }
+      - { label: Ordre, name: order, widget: number, value_type: int, default: 0 }
+
+  - name: works
+    label: Œuvres
+    folder: data/works
+    create: true
+    delete: true
+    slug: "{{slug}}"
+    identifier_field: title
+    fields:
+      - { label: Titre, name: title, widget: string }
+      - { label: Année, name: year, widget: number, value_type: int, required: false }
+      - { label: Technique, name: medium, widget: string, required: false }
+      - { label: Dimensions, name: dimensions, widget: string, required: false }
+      - { label: Description, name: description, widget: text, required: false }
+      - label: Salle
+        name: room
+        widget: relation
+        collection: rooms
+        search_fields: ["name"]
+        value_field: "{{slug}}"
+        display_fields: ["name"]
+      - { label: "Ordre dans la salle", name: order, widget: number, value_type: int, default: 0 }
+      - { label: Image, name: image, widget: image }

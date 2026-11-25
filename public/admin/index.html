@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Administration — Eric Houvenagel</title>
+    <script src="https://cdn.jsdelivr.net/npm/decap-cms@3/dist/decap-cms.js" defer></script>
+  </head>
+  <body>
+    <script>
+      window.addEventListener('DOMContentLoaded', function () {
+        var opts = { config: '/admin/config.yml' };
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+          opts.local_backend = true;
+        }
+        window.CMS.init(opts);
+      });
+    </script>
+  </body>
+</html>
