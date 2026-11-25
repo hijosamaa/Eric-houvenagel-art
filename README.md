@@ -43,9 +43,22 @@ npm run dev
 
 Le dépôt reste **privé** : GitHub Pages exigerait un dépôt public ou un plan payant, donc on déploie sur **Vercel** (gratuit, HTTPS, domaine perso gratuit).
 
-1. Sur [vercel.com](https://vercel.com) : **Add New… → Project → Import Git Repository**, choisis `hijosamaa/Eric-houvenagel-art` (si le dépôt est privé, autorise l'app GitHub Vercel à y accéder).
-2. Le preset **Vite** est détecté automatiquement ; build command `npm run build`, output `dist` (déjà fixés dans `vercel.json`). Root Directory : racine du dépôt.
-3. Branche de production : `main`.
-4. Chaque push sur cette branche redéploie automatiquement le site sur `https://<nom-du-projet>.vercel.app`.
+> **Limitation Hobby + dépôt privé** : Vercel bloque les déploiements déclenchés par git quand l'auteur du commit n'est pas le propriétaire du projet (« *The deployment was blocked because the commit author did not have contributing access* »). Comme les commits sont poussés par un compte tiers, on déploie via un **token Vercel en CI** (voir ci-dessous), ce qui garde le dépôt privé et le déploiement automatique.
+
+### Mise en place (une seule fois)
+
+1. Crée le projet sur [vercel.com](https://vercel.com) : **Add New… → Project → Import Git Repository** → `hijosamaa/Eric-houvenagel-art` (autorise l'app GitHub Vercel, dépôt privé). Preset **Vite** détecté automatiquement, build `npm run build`, output `dist` (déjà dans `vercel.json`), Root Directory = racine du dépôt, branche de production `main`.
+2. Sur ta machine, dans un clone du dépôt : `npm i -g vercel && vercel login && vercel link` → crée `.vercel/project.json`, à **committer** (déjà exclu du gitignore sauf ce fichier).
+3. Crée un token : [vercel.com/account/tokens](https://vercel.com/account/tokens), copie sa valeur.
+4. Ajoute le secret : dépôt GitHub → **Settings → Secrets and variables → Actions → New repository secret** → nom `VERCEL_TOKEN`, valeur = le token.
+5. Push sur `main` : le workflow `.github/workflows/deploy-vercel.yml` fait `npm ci`, `npm run build`, puis `vercel pull` / `vercel build --prod` / `vercel deploy --prebuilt --prod` avec le token → le site est publié sur `https://<nom-du-projet>.vercel.app`.
+
+### Alternative manuelle (sans CI)
+
+Depuis ton clone local (tu es l'auteur des commits, donc accepté par Vercel) : `vercel login && vercel link && vercel --prod`.
+
+### Autre option
+
+Rendre le dépôt **public** : les déploiements git connectés marchent alors tels quels sur le plan Hobby (mais le code et les images deviennent publics).
 
 Voir `docs/plan.md` pour l'architecture complète et `docs/style-guide.md` pour les décisions de style.
