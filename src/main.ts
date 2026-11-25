@@ -5,7 +5,7 @@ import { createScene } from './gallery/scene';
 import { buildPaintings, ensureTexture, setHovered } from './gallery/paintings';
 import { GalleryControls } from './gallery/controls';
 import { Minimap } from './gallery/minimap';
-import { initUI } from './ui';
+import { initUI, type IndexGroup } from './ui';
 
 async function boot(): Promise<void> {
   const base = import.meta.env.BASE_URL;
@@ -35,12 +35,24 @@ async function boot(): Promise<void> {
     og.setAttribute('content', location.origin + base + data.works[0].image);
   }
 
+  const strip = document.getElementById('intro-strip');
+  if (strip) {
+    for (const w of data.works.slice(0, 3)) {
+      const img = document.createElement('img');
+      img.src = base + w.image;
+      img.alt = w.title;
+      strip.appendChild(img);
+    }
+  }
+
   const layout = computeLayout(data);
   const coarse = window.matchMedia('(pointer: coarse)').matches;
   const small = Math.min(window.innerWidth, window.innerHeight) < 640;
+  const fine = window.matchMedia('(pointer: fine)').matches;
   const pixelRatio = Math.min(window.devicePixelRatio, coarse || small ? 1.5 : 2);
-  const { renderer, scene, camera, spot } = createScene(canvas, layout, pixelRatio);
-  const entries = buildPaintings(scene, layout);
+  const shadows = fine && !small;
+  const { renderer, scene, camera, spot } = createScene(canvas, layout, pixelRatio, { shadows });
+  const entries = buildPaintings(scene, layout, shadows);
 
   const spacer = document.getElementById('scroll-spacer') as HTMLDivElement;
   spacer.style.height = `${Math.round((data.works.length * 1.15 + 1.8) * 100)}vh`;
@@ -112,7 +124,7 @@ async function boot(): Promise<void> {
       onEnter: () => {
         entered = true;
         ui.hideIntro();
-        ui.toast("Faites défiler pour avancer · cliquez sur un tableau pour l'observer", 8000);
+        ui.toast("Faites défiler pour avancer · cliquez sur un tableau ou son numéro pour l'observer", 8000);
       },
       onClosePanel: () => {
         panelWork = null;
@@ -120,13 +132,29 @@ async function boot(): Promise<void> {
       onZoom: () => {
         if (panelWork) ui.openLightbox(panelWork);
       },
+      onEndRestart: () => {
+        ui.showEnd(false);
+        window.scrollTo({ top: 0, behavior: controls.reduced ? 'auto' : 'smooth' });
+      },
+      onEndIndex: () => {
+        ui.showEnd(false);
+        ui.openIndex();
+      },
     },
     base,
   );
   ui.setWorks(layout.placed);
   ui.buildDots(layout.placed.length, (i) => focusWork(layout.placed[i]));
 
-  if (!window.matchMedia('(pointer: fine)').matches) {
+  const groups: IndexGroup[] = layout.zones
+    .map((z) => ({
+      name: z.name,
+      works: layout.placed.filter((p) => p.roomName === z.name),
+    }))
+    .filter((g) => g.works.length > 0);
+  ui.buildIndex(groups, base, (p) => focusWork(p));
+
+  if (!fine) {
     (document.getElementById('btn-free') as HTMLButtonElement).style.display = 'none';
   }
 
@@ -136,6 +164,10 @@ async function boot(): Promise<void> {
   controls.onEscape = () => {
     if (ui.lightboxIsOpen()) {
       ui.closeLightbox();
+      return;
+    }
+    if (ui.indexIsOpen()) {
+      ui.closeIndex();
       return;
     }
     if (ui.panelIsOpen()) {
@@ -170,7 +202,7 @@ async function boot(): Promise<void> {
   let mouseNdc: THREE.Vector2 | null = null;
   let hoverDirty = false;
   window.addEventListener('pointermove', (e) => {
-    if (!window.matchMedia('(pointer: fine)').matches) return;
+    if (!fine) return;
     const rect = canvas.getBoundingClientRect();
     mouseNdc = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -222,7 +254,11 @@ async function boot(): Promise<void> {
       spot.target = entries[idx].group;
       spot.position.set(cur.x + (cur.side === 'right' ? -0.9 : 0.9), 3.15, cur.z);
     }
-    ui.setProgressBar(progressT(camZ));
+    const t = progressT(camZ);
+    ui.setProgressBar(t);
+    if (entered && controls.mode === 'guided') {
+      ui.showEnd(t > 0.985);
+    }
     const zone = layout.zones.find((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
     if (zone && zone.name !== lastRoom) {
       lastRoom = zone.name;
@@ -232,7 +268,7 @@ async function boot(): Promise<void> {
       ui.closePanel();
       panelWork = null;
     }
-    minimap.draw(camZ, cur?.work.id ?? null);
+    minimap.draw(camZ, cur?.work.id ?? null, performance.now());
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }

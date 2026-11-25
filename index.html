@@ -33,7 +33,7 @@
         <span id="brand-sub">Galerie virtuelle · huile &amp; aquarelle</span>
       </header>
 
-      <canvas id="minimap" width="110" height="300" title="Plan de la galerie — cliquez pour vous déplacer"></canvas>
+      <canvas id="minimap" width="130" height="340" title="Plan de la galerie — cliquez sur un numéro pour vous y rendre"></canvas>
 
       <div id="room-banner" role="status"></div>
       <div id="toast" role="status"></div>
@@ -47,6 +47,7 @@
           <span id="p-room"></span>
         </div>
         <button id="btn-next" class="hud-btn" aria-label="Œuvre suivante">›</button>
+        <button id="btn-index" class="hud-btn wide">Index</button>
         <button id="btn-free" class="hud-btn wide">Explorer librement</button>
       </div>
 
@@ -63,6 +64,14 @@
         </div>
       </aside>
 
+      <div id="index-overlay" class="hidden" role="dialog" aria-modal="true" aria-label="Index des œuvres">
+        <div id="index-head">
+          <h2>Index des œuvres</h2>
+          <button id="index-close" class="hud-btn" aria-label="Fermer l'index">×</button>
+        </div>
+        <div id="index-body"></div>
+      </div>
+
       <div id="lightbox" class="hidden" role="dialog" aria-modal="true" aria-label="Œuvre en grand">
         <figure>
           <img id="lightbox-img" alt="" />
@@ -73,16 +82,27 @@
         <button id="lb-next" class="hud-btn lb right" aria-label="Œuvre suivante">›</button>
       </div>
 
+      <div id="end" class="hidden" role="status">
+        <div id="end-inner">
+          <p id="end-kicker">Fin de la visite</p>
+          <h2>Merci de votre visite</h2>
+          <div class="panel-actions center">
+            <button id="end-index" class="hud-btn wide">Voir l'index des œuvres</button>
+            <button id="end-restart" class="hud-btn wide accent">Revoir depuis le début</button>
+          </div>
+        </div>
+      </div>
+
       <div id="intro">
         <div id="intro-inner">
           <p id="intro-kicker">Peinture · huile &amp; aquarelle</p>
           <h1 id="intro-name">Eric Houvenagel</h1>
+          <div id="intro-strip" aria-hidden="true"></div>
           <div id="loader-bar"><div id="loader-fill"></div></div>
           <p id="loader-text">Chargement de la galerie…</p>
           <button id="btn-enter" disabled>Entrer dans la galerie</button>
           <p class="hint">
-            Faites défiler pour avancer · cliquez sur un tableau pour l'observer · ‹ › ou flèches du clavier pour
-            changer d'œuvre
+            Faites défiler pour avancer · cliquez sur un tableau pour l'observer · « Index » liste toutes les œuvres
           </p>
         </div>
       </div>

@@ -32,8 +32,11 @@ export class GalleryControls {
 
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
-  private targetZ = Z_START;
-  private camZ = Z_START;
+  private readonly curve: THREE.CatmullRomCurve3;
+  private readonly pos = new THREE.Vector3(0, 1.6, Z_START);
+  private readonly lookVec = new THREE.Vector3(0, WALL_Y, Z_START - 4);
+  private targetT = 0;
+  private t = 0;
   private yaw = 0;
   private pitch = 0;
   private readonly keys = new Set<string>();
@@ -43,6 +46,28 @@ export class GalleryControls {
   constructor(camera: THREE.PerspectiveCamera, layout: Layout, canvas: HTMLCanvasElement) {
     this.camera = camera;
     this.layout = layout;
+
+    const pts: THREE.Vector3[] = [new THREE.Vector3(0, 1.6, Z_START + 1.2)];
+    for (const p of layout.placed) {
+      pts.push(new THREE.Vector3(p.viewX * 0.55, 1.6, p.viewZ));
+    }
+    pts.push(new THREE.Vector3(0, 1.6, layout.zEnd + 1.2));
+    this.curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.6);
+
+    const N = 240;
+    for (const p of layout.placed) {
+      let best = 0;
+      let bd = Infinity;
+      for (let i = 0; i < N; i++) {
+        const tt = i / (N - 1);
+        const d = Math.abs(this.curve.getPointAt(tt).z - p.viewZ);
+        if (d < bd) {
+          bd = d;
+          best = tt;
+        }
+      }
+      p.scrollT = best;
+    }
 
     window.addEventListener('scroll', () => this.readScroll(), { passive: true });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -74,7 +99,11 @@ export class GalleryControls {
   }
 
   currentZ(): number {
-    return this.mode === 'guided' ? this.camZ : this.camera.position.z;
+    return this.pos.z;
+  }
+
+  currentT(): number {
+    return this.t;
   }
 
   setMode(mode: Mode): void {
@@ -84,7 +113,7 @@ export class GalleryControls {
       this.yaw = 0;
       this.pitch = 0;
       document.documentElement.style.overflow = 'hidden';
-      this.camera.position.set(this.camera.position.x, 1.6, this.camZ);
+      this.camera.position.set(this.pos.x, 1.6, this.pos.z);
     } else {
       document.documentElement.style.overflow = '';
       this.readScroll();
@@ -111,11 +140,16 @@ export class GalleryControls {
 
   update(dt: number): void {
     if (this.mode === 'guided') {
-      if (this.reduced) this.camZ = this.targetZ;
-      else this.camZ += (this.targetZ - this.camZ) * Math.min(1, dt * 7);
-      this.camera.position.set(0, 1.6, this.camZ);
-      const t = this.lookTarget();
-      this.camera.lookAt(t.x, t.y, t.z);
+      if (this.reduced) this.t = this.targetT;
+      else this.t += (this.targetT - this.t) * Math.min(1, dt * 6);
+      this.curve.getPointAt(clamp(this.t, 0, 1), this.pos);
+      this.camera.position.copy(this.pos);
+      const idx = this.currentIndex();
+      const p = this.layout.placed[idx];
+      const target = p ? new THREE.Vector3(p.x, WALL_Y, p.z) : new THREE.Vector3(0, WALL_Y, this.pos.z - 4);
+      const k = this.reduced ? 1 : Math.min(1, dt * 2.6);
+      this.lookVec.lerp(target, k);
+      this.camera.lookAt(this.lookVec);
     } else {
       const pos = this.camera.position;
       if (this.focusAnim) {
@@ -147,9 +181,18 @@ export class GalleryControls {
       pos.x = clamp(pos.x, -(HALL_WIDTH / 2 - 0.8), HALL_WIDTH / 2 - 0.8);
       pos.z = clamp(pos.z, this.layout.zEnd + 1, Z_START + 1.6);
       pos.y = 1.6;
+      this.pos.copy(pos);
       this.camera.rotation.order = 'YXZ';
       this.camera.rotation.set(this.pitch, this.yaw, 0);
     }
+  }
+
+  private currentIndex(): number {
+    const ps = this.layout.placed;
+    if (ps.length === 0) return 0;
+    let passed = 0;
+    for (const p of ps) if (p.z > this.pos.z) passed++;
+    return Math.min(passed, ps.length - 1);
   }
 
   private readScroll(): void {
@@ -158,48 +201,7 @@ export class GalleryControls {
     if (!spacer) return;
     const max = spacer.offsetHeight - window.innerHeight;
     if (max <= 0) return;
-    const t = clamp(window.scrollY / max, 0, 1);
-    this.targetZ = Z_START + (this.layout.zEnd - Z_START) * t;
-  }
-
-  private lookTarget(): THREE.Vector3 {
-    const ps = this.layout.placed;
-    const ahead = 2.4;
-    const target = new THREE.Vector3(0, WALL_Y, this.camZ - ahead);
-    if (ps.length > 0) {
-      if (this.camZ >= ps[0].z) {
-        target.set(ps[0].x, WALL_Y, ps[0].z - ahead * 0.4);
-      } else {
-        const last = ps[ps.length - 1];
-        if (this.camZ <= last.z) {
-          target.set(last.x, WALL_Y, last.z);
-        } else {
-          for (let i = 0; i < ps.length - 1; i++) {
-            const a = ps[i];
-            const b = ps[i + 1];
-            if (this.camZ <= a.z && this.camZ >= b.z) {
-              const t = (a.z - this.camZ) / (a.z - b.z);
-              target.set(a.x + (b.x - a.x) * t, WALL_Y, this.camZ - ahead);
-              break;
-            }
-          }
-        }
-      }
-      let best: PlacedWork | null = null;
-      let bd = 1.7;
-      for (const p of ps) {
-        const d = Math.abs(p.z - this.camZ);
-        if (d < bd) {
-          bd = d;
-          best = p;
-        }
-      }
-      if (best) {
-        const t = 1 - bd / 1.7;
-        target.lerp(new THREE.Vector3(best.x, WALL_Y, best.z), t * t);
-      }
-    }
-    return target;
+    this.targetT = clamp(window.scrollY / max, 0, 1);
   }
 
   private tap(cx: number, cy: number, canvas: HTMLCanvasElement): void {

@@ -1,5 +1,10 @@
 import type { PlacedWork } from './gallery/layout';
 
+export interface IndexGroup {
+  name: string;
+  works: PlacedWork[];
+}
+
 export interface UICallbacks {
   onPrev: () => void;
   onNext: () => void;
@@ -7,6 +12,8 @@ export interface UICallbacks {
   onEnter: () => void;
   onClosePanel: () => void;
   onZoom: () => void;
+  onEndRestart: () => void;
+  onEndIndex: () => void;
 }
 
 export interface UI {
@@ -18,6 +25,10 @@ export interface UI {
   buildDots(n: number, onPick: (i: number) => void): void;
   setActiveDot(i: number): void;
   setWorks(works: PlacedWork[]): void;
+  buildIndex(groups: IndexGroup[], baseUrl: string, onPick: (p: PlacedWork) => void): void;
+  openIndex(): void;
+  closeIndex(): void;
+  indexIsOpen(): boolean;
   openPanel(p: PlacedWork): void;
   closePanel(): void;
   panelIsOpen(): boolean;
@@ -25,6 +36,7 @@ export interface UI {
   lbNav(dir: 1 | -1): PlacedWork | null;
   closeLightbox(): void;
   lightboxIsOpen(): boolean;
+  showEnd(v: boolean): void;
   setLoader(ratio: number, done: boolean): void;
   hideIntro(): void;
   setFreeLabel(active: boolean): void;
@@ -41,6 +53,8 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   const lightbox = $('lightbox');
   const lbImg = $('lightbox-img') as HTMLImageElement;
   const intro = $('intro');
+  const indexOverlay = $('index-overlay');
+  const endOverlay = $('end');
   let roomTimer: number | undefined;
   let toastTimer: number | undefined;
   let works: PlacedWork[] = [];
@@ -51,6 +65,10 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('btn-next').addEventListener('click', cb.onNext);
   $('btn-free').addEventListener('click', cb.onFreeToggle);
   $('btn-enter').addEventListener('click', cb.onEnter);
+  $('btn-index').addEventListener('click', () => {
+    indexOverlay.classList.contains('hidden') ? indexOverlay.classList.remove('hidden') : indexOverlay.classList.add('hidden');
+  });
+  $('index-close').addEventListener('click', () => indexOverlay.classList.add('hidden'));
   $('panel-close').addEventListener('click', () => {
     panel.classList.remove('open');
     cb.onClosePanel();
@@ -62,6 +80,8 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('lb-prev').addEventListener('click', cb.onPrev);
   $('lb-next').addEventListener('click', cb.onNext);
   lightbox.addEventListener('click', () => lightbox.classList.add('hidden'));
+  $('end-restart').addEventListener('click', cb.onEndRestart);
+  $('end-index').addEventListener('click', cb.onEndIndex);
 
   lightbox.addEventListener(
     'wheel',
@@ -130,14 +150,14 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       for (let i = 0; i < n; i++) {
         const b = document.createElement('button');
         b.className = 'dot';
+        b.textContent = String(i + 1);
         b.setAttribute('aria-label', `Aller à l'œuvre ${i + 1}`);
         b.addEventListener('click', () => onPick(i));
         box.appendChild(b);
       }
     },
     setActiveDot(i) {
-      const box = $('dots');
-      const dots = box.children;
+      const dots = $('dots').children;
       for (let k = 0; k < dots.length; k++) {
         dots[k].classList.toggle('active', k === i);
       }
@@ -145,6 +165,50 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     setWorks(w) {
       works = w;
     },
+    buildIndex(groups, base, onPick) {
+      const body = $('index-body');
+      body.innerHTML = '';
+      for (const group of groups) {
+        const section = document.createElement('section');
+        section.className = 'index-room';
+        const h = document.createElement('h3');
+        h.textContent = group.name;
+        section.appendChild(h);
+        const grid = document.createElement('div');
+        grid.className = 'index-grid';
+        for (const p of group.works) {
+          const card = document.createElement('button');
+          card.className = 'index-card';
+          const img = document.createElement('img');
+          img.src = base + p.work.image;
+          img.alt = p.work.title;
+          img.loading = 'lazy';
+          const t = document.createElement('span');
+          t.className = 'index-card-title';
+          t.textContent = p.work.title;
+          const m = document.createElement('span');
+          m.className = 'index-card-meta';
+          m.textContent = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium].filter(Boolean).join(' · ');
+          card.appendChild(img);
+          card.appendChild(t);
+          card.appendChild(m);
+          card.addEventListener('click', () => {
+            indexOverlay.classList.add('hidden');
+            onPick(p);
+          });
+          grid.appendChild(card);
+        }
+        section.appendChild(grid);
+        body.appendChild(section);
+      }
+    },
+    openIndex() {
+      indexOverlay.classList.remove('hidden');
+    },
+    closeIndex() {
+      indexOverlay.classList.add('hidden');
+    },
+    indexIsOpen: () => !indexOverlay.classList.contains('hidden'),
     openPanel(p) {
       const img = $('panel-img') as HTMLImageElement;
       img.src = baseUrl + p.work.image;
@@ -177,6 +241,9 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       lbId = null;
     },
     lightboxIsOpen: () => !lightbox.classList.contains('hidden'),
+    showEnd(v) {
+      endOverlay.classList.toggle('hidden', !v);
+    },
     setLoader(ratio, done) {
       $('loader-fill').style.width = `${Math.round(ratio * 100)}%`;
       $('loader-text').textContent = done ? 'Prêt — bonne visite' : `Chargement de la galerie… ${Math.round(ratio * 100)} %`;

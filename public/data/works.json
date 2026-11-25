@@ -17,7 +17,7 @@
       "room": "marines",
       "order": 1,
       "image": "data/images/port-bateaux.jpg",
-      "ratio": 0.9643
+      "ratio": 1.0
     },
     {
       "id": "morbihan",
@@ -29,7 +29,7 @@
       "room": "marines",
       "order": 2,
       "image": "data/images/morbihan.jpg",
-      "ratio": 0.8824
+      "ratio": 1.0
     },
     {
       "id": "paysage-hiver",
@@ -41,7 +41,7 @@
       "room": "marines",
       "order": 3,
       "image": "data/images/paysage-hiver.jpg",
-      "ratio": 0.8182
+      "ratio": 1.0
     },
     {
       "id": "baigneuse",
@@ -53,7 +53,7 @@
       "room": "figures",
       "order": 1,
       "image": "data/images/baigneuse.jpg",
-      "ratio": 0.6122
+      "ratio": 1.0
     },
     {
       "id": "abstraction",
@@ -65,7 +65,7 @@
       "room": "abstractions",
       "order": 1,
       "image": "data/images/abstraction.jpg",
-      "ratio": 0.8497
+      "ratio": 1.0
     }
   ]
 }
