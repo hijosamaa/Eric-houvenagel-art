@@ -31,3 +31,16 @@ Ces tableaux serviront à définir la palette, la typographie et l'ambiance de l
 ## Mode administrateur (à venir)
 
 Un CMS headless (interface web d'administration) permettra de publier un tableau depuis une image, de changer l'ordre des œuvres et d'éditer titre, année, technique, dimensions et description — sans toucher au code. Le détail technique sera décrit dans `docs/`.
+
+## Développement local
+
+```bash
+npm install
+npm run dev
+```
+
+## Déploiement
+
+Le site est construit et déployé automatiquement sur **GitHub Pages** à chaque push (workflow `.github/workflows/deploy.yml`) : https://hijosamaa.github.io/Eric-houvenagel-art/
+
+Voir `docs/plan.md` pour l'architecture complète et `docs/style-guide.md` pour les décisions de style.

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Eric Houvenagel — Galerie</title>
+    <meta name="description" content="Galerie virtuelle 3D des tableaux d'Eric Houvenagel (huile et aquarelle)." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="scroll-spacer" aria-hidden="true"></div>
+    <div id="app">
+      <canvas id="scene"></canvas>
+
+      <header id="brand">
+        <span id="brand-name">Eric Houvenagel</span>
+        <span id="brand-sub">Galerie virtuelle</span>
+      </header>
+
+      <canvas id="minimap" width="96" height="300" title="Plan de la galerie"></canvas>
+
+      <div id="room-banner"></div>
+
+      <div id="hud-bottom">
+        <button id="btn-prev" class="hud-btn" aria-label="Œuvre précédente">‹</button>
+        <div id="progress">
+          <span id="p-cur">–</span><span class="sep">/</span><span id="p-total">–</span>
+          <span id="p-room"></span>
+        </div>
+        <button id="btn-next" class="hud-btn" aria-label="Œuvre suivante">›</button>
+        <button id="btn-free" class="hud-btn wide">Explorer librement</button>
+      </div>
+
+      <aside id="panel">
+        <button id="panel-close" aria-label="Fermer">×</button>
+        <h2 id="panel-title"></h2>
+        <p id="panel-meta"></p>
+        <p id="panel-desc"></p>
+        <button id="panel-zoom" class="hud-btn wide">Voir en grand</button>
+      </aside>
+
+      <div id="lightbox" class="hidden"><img id="lightbox-img" alt="" /></div>
+
+      <div id="intro">
+        <div id="intro-inner">
+          <h1 id="intro-name">Eric Houvenagel</h1>
+          <p>Huile &amp; aquarelle</p>
+          <div id="loader-bar"><div id="loader-fill"></div></div>
+          <p id="loader-text">Chargement…</p>
+          <button id="btn-enter" disabled>Entrer dans la galerie</button>
+          <p class="hint">Faites défiler pour avancer · cliquez sur un tableau pour l'observer</p>
+        </div>
+      </div>
+
+      <div id="nogl" class="hidden">
+        Votre navigateur ne supporte pas WebGL : la galerie 3D n'est pas disponible sur cet appareil.
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
