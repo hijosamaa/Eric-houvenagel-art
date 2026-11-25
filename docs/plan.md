@@ -106,10 +106,11 @@ Aides au repérage : **minimap 2D cliquable** (haut droite, avec position camér
 ## Roadmap
 
 1. ✅ Squelette : scène 3D + galerie data-driven + 5 œuvres de démo + navigation guidée/libre + minimap + panneau + lightbox + déploiement continu Vercel.
-2. ⏭️ Itération « admin » : `admin/` (Decap/Sveltia), schéma par-fichier `data/works/*.json`, upload image + réordonnancement.
-3. ⏭️ Itération « mobile/perf » : contrôles tactiles affinés, KTX2/WebP, LOD, test sur vrais téléphones.
-4. ⏭️ Itération « contenu » : remplacer les images de démo (captures Instagram rognées) par les photos originales des œuvres via l'admin ; bio de l'artiste, page « À propos », contact.
-5. ⏭️ Domaine perso + SEO (Open Graph, sitemap, alt textes).
+2. ✅ Polish UX/UI : textures procédurales (parquet, plâtre), plinthes et corniches, plaques de salles, spotlight qui suit l'œuvre courante, hover sur les tableaux, pastilles de navigation, lightbox avec navigation clavier + zoom molette, toasts d'aide, barre de progression, panneau en bottom sheet sur mobile, `prefers-reduced-motion`, meta Open Graph.
+3. ⏭️ Itération « admin » : `admin/` (Decap/Sveltia), schéma par-fichier `data/works/*.json`, upload image + réordonnancement, pont OAuth en fonction serverless Vercel (`api/`).
+4. ⏭️ Itération « mobile/perf » : KTX2/WebP, LOD, pixelRatio adaptatif (déjà en partie), test sur vrais téléphones.
+5. ⏭️ Itération « contenu » : remplacer les images de démo (captures Instagram rognées) par les photos originales des œuvres via l'admin ; bio de l'artiste, page « À propos », contact.
+6. ⏭️ Domaine perso + SEO (sitemap, alt textes).
 
 ## Décisions ouvertes
 

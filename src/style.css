@@ -22,6 +22,11 @@ body {
   font-family: var(--sans);
 }
 
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 #scroll-spacer {
   width: 1px;
 }
@@ -30,6 +35,27 @@ body {
   position: fixed;
   inset: 0;
   overflow: hidden;
+}
+
+#app::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 42%, transparent 58%, rgba(32, 36, 42, 0.1) 100%);
+}
+
+#app::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 110px;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(rgba(250, 247, 242, 0.85), transparent);
 }
 
 #scene {
@@ -60,7 +86,7 @@ body {
   letter-spacing: 0.02em;
 }
 #brand-sub {
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.22em;
   color: var(--muted);
@@ -99,6 +125,62 @@ body {
 }
 #room-banner.show {
   opacity: 1;
+}
+
+#toast {
+  position: absolute;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  z-index: 15;
+  background: rgba(32, 36, 42, 0.86);
+  color: #faf7f2;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  padding: 9px 16px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.4s, transform 0.4s;
+  pointer-events: none;
+  max-width: 88vw;
+  text-align: center;
+}
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+#dots {
+  position: absolute;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 253, 249, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s, transform 0.2s, border-color 0.2s;
+}
+.dot:hover {
+  border-color: var(--accent);
+}
+.dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.3);
 }
 
 #hud-bottom {
@@ -156,6 +238,14 @@ body {
   font-size: 12.5px;
   letter-spacing: 0.04em;
 }
+.hud-btn.accent {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.hud-btn.accent:hover {
+  background: #27445a;
+}
 
 #panel {
   position: absolute;
@@ -167,7 +257,7 @@ body {
   background: var(--panel-bg);
   border-left: 1px solid var(--line);
   box-shadow: -18px 0 40px rgba(32, 36, 42, 0.08);
-  padding: 84px 28px 28px;
+  padding: 76px 28px 28px;
   transform: translateX(105%);
   transition: transform 0.45s cubic-bezier(0.22, 0.8, 0.24, 1);
   overflow-y: auto;
@@ -193,6 +283,13 @@ body {
   color: #fff;
   border-color: var(--accent);
 }
+#panel-img {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  background: #fff;
+}
 #panel-title {
   font-family: var(--serif);
   font-size: 32px;
@@ -210,6 +307,11 @@ body {
   line-height: 1.65;
   margin-bottom: 22px;
 }
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 #lightbox {
   position: absolute;
@@ -221,10 +323,49 @@ body {
   justify-content: center;
   cursor: zoom-out;
 }
+#lightbox figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 94vw;
+}
 #lightbox img {
   max-width: 92vw;
-  max-height: 88vh;
+  max-height: 78vh;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  transition: transform 0.18s ease;
+  cursor: zoom-in;
+}
+#lightbox figcaption {
+  color: #e8e4da;
+  font-size: 14px;
+  text-align: center;
+}
+#lb-meta {
+  display: block;
+  color: #a9a294;
+  font-size: 12px;
+  margin-top: 3px;
+}
+#lightbox .hud-btn.lb {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 253, 249, 0.92);
+  z-index: 41;
+}
+#lightbox .lb.left {
+  left: 18px;
+}
+#lightbox .lb.right {
+  right: 18px;
+}
+#lb-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  transform: none;
 }
 
 .hidden {
@@ -240,14 +381,22 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
+  transition: opacity 0.45s;
+}
+#intro-kicker {
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 12px;
 }
 #intro-inner h1 {
   font-family: var(--serif);
-  font-size: clamp(40px, 8vw, 72px);
+  font-size: clamp(44px, 9vw, 78px);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
-#intro-inner > p {
+#intro-inner > p:not(.hint):not(#intro-kicker) {
   color: var(--muted);
   margin-top: 6px;
   letter-spacing: 0.14em;
@@ -283,6 +432,10 @@ body {
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  transition: background 0.2s;
+}
+#btn-enter:hover {
+  background: #27445a;
 }
 #btn-enter:disabled {
   opacity: 0.4;
@@ -294,6 +447,8 @@ body {
   color: var(--muted);
   letter-spacing: 0.03em;
   text-transform: none;
+  max-width: 420px;
+  line-height: 1.6;
 }
 
 #nogl {
@@ -307,6 +462,22 @@ body {
   padding: 24px;
   text-align: center;
   color: var(--muted);
+}
+
+#progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--line);
+  z-index: 12;
+}
+#progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
 }
 
 @media (max-width: 640px) {
@@ -328,10 +499,29 @@ body {
     top: 14px;
     max-width: 72vw;
   }
+  #toast {
+    top: 58px;
+    font-size: 11.5px;
+  }
+  #dots {
+    bottom: 72px;
+    gap: 7px;
+  }
   #panel {
-    width: 100vw;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 56%;
+    transform: translateY(105%);
     border-left: none;
-    padding-top: 72px;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -18px 40px rgba(32, 36, 42, 0.1);
+    padding: 18px 20px 90px;
+  }
+  #panel-title {
+    font-size: 26px;
   }
   #hud-bottom {
     bottom: 12px;
@@ -341,5 +531,18 @@ body {
   .hud-btn {
     width: 36px;
     height: 36px;
+  }
+  #lightbox .lb.left {
+    left: 8px;
+  }
+  #lightbox .lb.right {
+    right: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
   }
 }

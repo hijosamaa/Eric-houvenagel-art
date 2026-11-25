@@ -31,24 +31,33 @@ export class Minimap {
     const { ctx, canvas } = this;
     const { zMin, zMax } = hallBounds(this.layout);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(250,247,242,0.9)';
+    ctx.fillStyle = 'rgba(250,247,242,0.92)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let band = 0;
+    for (const zone of this.layout.zones) {
+      const yTop = this.mapZ(zone.zMax);
+      const yBot = this.mapZ(zone.zMin);
+      ctx.fillStyle = band % 2 === 0 ? 'rgba(51, 86, 110, 0.06)' : 'rgba(51, 86, 110, 0.11)';
+      ctx.fillRect(4, yTop, canvas.width - 8, yBot - yTop);
+      ctx.fillStyle = '#8a8378';
+      ctx.font = '8px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(zone.name, 6, yTop + 9, canvas.width - 12);
+      band++;
+    }
+
     const x0 = this.mapX(-HALL_WIDTH / 2);
     const x1 = this.mapX(HALL_WIDTH / 2);
-    const yTop = this.mapZ(zMax);
-    const yBot = this.mapZ(zMin);
     ctx.strokeStyle = '#c9c2b4';
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(x0, yTop, x1 - x0, yBot - yTop);
-    ctx.strokeStyle = '#e3dccd';
-    ctx.lineWidth = 1;
-    for (const zone of this.layout.zones) {
-      const y = this.mapZ(zone.zMax);
-      ctx.beginPath();
-      ctx.moveTo(6, y);
-      ctx.lineTo(canvas.width - 6, y);
-      ctx.stroke();
-    }
+    ctx.strokeRect(x0, this.mapZ(zMax), x1 - x0, this.mapZ(zMin) - this.mapZ(zMax));
+
+    ctx.fillStyle = '#6f6a60';
+    ctx.font = '8px Inter, system-ui, sans-serif';
+    ctx.fillText('Entrée', 6, this.mapZ(zMax) - 4 + 8);
+
     for (const p of this.layout.placed) {
       const x = this.mapX(p.x);
       const y = this.mapZ(p.z);
@@ -57,7 +66,15 @@ export class Minimap {
       ctx.beginPath();
       ctx.arc(x, y, active ? 5 : 3.5, 0, Math.PI * 2);
       ctx.fill();
+      if (active) {
+        ctx.strokeStyle = '#33566e';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
+
     const cy = this.mapZ(camZ);
     const cx = this.mapX(0);
     ctx.fillStyle = '#33566e';
