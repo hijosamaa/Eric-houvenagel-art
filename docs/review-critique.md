@@ -41,7 +41,18 @@ visuel, pass 3 robustesse/perf. Les constats viennent des screenshots, pas de l'
 - **Assets HD réels** : les 5 images actuelles sont des extraits 1080 px de captures Instagram. Pour du vrai
   HD, uploader les photos originales des tableaux dans `references/` (elles remplaceront les démos via l'admin).
 
-## Vérification visuelle
+## Vérification visuelle (itération 2)
 
-- Pipeline local reproductible : build `dist/`, serveur statique sur `127.0.0.1`, puppeteer headless
-  (SwiftShader) → screenshots desktop/mobile analysés à chaque itération. Zéro erreur console JS constaté.
+Pipeline local reproductible (hors dépôt, dans la sandbox) : build `dist/`, serveur statique sur
+`127.0.0.1`, **puppeteer headless + SwiftShader** (WebGL2 confirmé actif) → 15 screenshots desktop 1440×900
+et mobile 390×844 (intro, entrée, 4 positions de scroll, panneau, lightbox, index, fin, mode libre, mobile).
+
+- **Zéro erreur console / pageerror** sur toutes les runs.
+- Vérifié par OCR des screenshots : intro complète (titre, CTA, 3 aperçus), HUD lisible (« 3/5 — Marines &
+  Bretagne », pastilles 1–5, « Index »), index des œuvres avec vignettes et salles, écran de fin « Merci de
+  votre visite », cartels/plaques 3D rendus — et **plus aucun texte Instagram** dans les images (re-crop
+  propre, badge carrousel rogné).
+- Piège rencontré dans la sandbox : aucune police installée → tout le texte rendait en hauteur 0 dans les
+  captures. Corrigé en installant DejaVu/Liberation localement (artefact du sandbox uniquement ; sur un vrai
+  navigateur les webfonts Cormorant/Inter s'appliquent normalement).
+- Pour du vrai HD : remplacer les 5 extraits 1080 px par les photos originales (upload dans `references/`).

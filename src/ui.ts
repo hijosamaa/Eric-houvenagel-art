@@ -66,7 +66,12 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('btn-free').addEventListener('click', cb.onFreeToggle);
   $('btn-enter').addEventListener('click', cb.onEnter);
   $('btn-index').addEventListener('click', () => {
-    indexOverlay.classList.contains('hidden') ? indexOverlay.classList.remove('hidden') : indexOverlay.classList.add('hidden');
+    if (indexOverlay.classList.contains('hidden')) {
+      indexOverlay.classList.remove('hidden');
+      panel.classList.remove('open');
+    } else {
+      indexOverlay.classList.add('hidden');
+    }
   });
   $('index-close').addEventListener('click', () => indexOverlay.classList.add('hidden'));
   $('panel-close').addEventListener('click', () => {

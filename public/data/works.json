@@ -17,7 +17,7 @@
       "room": "marines",
       "order": 1,
       "image": "data/images/port-bateaux.jpg",
-      "ratio": 1.0
+      "ratio": 1.3139
     },
     {
       "id": "morbihan",
@@ -29,7 +29,7 @@
       "room": "marines",
       "order": 2,
       "image": "data/images/morbihan.jpg",
-      "ratio": 1.0
+      "ratio": 1.4381
     },
     {
       "id": "paysage-hiver",
@@ -41,19 +41,19 @@
       "room": "marines",
       "order": 3,
       "image": "data/images/paysage-hiver.jpg",
-      "ratio": 1.0
+      "ratio": 0.8263
     },
     {
       "id": "baigneuse",
-      "title": "La baigneuse",
+      "title": "80 degrés Farenheit",
       "year": 2026,
       "medium": "Acrylique sur bois",
       "dimensions": "80 x 80 cm",
-      "description": "Figure de dos dans l'eau, bonnet blanc.",
+      "description": "Figure de dos dans l'eau, bonnet blanc. Toile 80 x 80 cm.",
       "room": "figures",
       "order": 1,
       "image": "data/images/baigneuse.jpg",
-      "ratio": 1.0
+      "ratio": 0.8263
     },
     {
       "id": "abstraction",
@@ -65,7 +65,7 @@
       "room": "abstractions",
       "order": 1,
       "image": "data/images/abstraction.jpg",
-      "ratio": 1.0
+      "ratio": 1.0247
     }
   ]
 }

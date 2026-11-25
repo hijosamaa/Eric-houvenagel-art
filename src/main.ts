@@ -138,6 +138,8 @@ async function boot(): Promise<void> {
       },
       onEndIndex: () => {
         ui.showEnd(false);
+        ui.closePanel();
+        panelWork = null;
         ui.openIndex();
       },
     },
@@ -257,7 +259,12 @@ async function boot(): Promise<void> {
     const t = progressT(camZ);
     ui.setProgressBar(t);
     if (entered && controls.mode === 'guided') {
-      ui.showEnd(t > 0.985);
+      const showEndNow = t > 0.985;
+      if (showEndNow && ui.panelIsOpen()) {
+        ui.closePanel();
+        panelWork = null;
+      }
+      ui.showEnd(showEndNow);
     }
     const zone = layout.zones.find((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
     if (zone && zone.name !== lastRoom) {
