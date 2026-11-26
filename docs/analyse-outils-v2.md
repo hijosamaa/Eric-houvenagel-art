@@ -156,7 +156,29 @@ caméra à borner ; analytics = données envoyées à Vercel (cookieless).
 **Verdict chiffré** : A+B+C+E2+H = ~120 Ko gzip ajoutés, 0 WASM côté client, latence input inchangée.
 Seul Rapier ajoute du poids (1,4 Mo) → lazy obligatoire.
 
-## 6. Bonus — dettes perf remarquées dans le code (hors outils)
+## 6. Bilan d'intégration (2026-11-26) — ce qui a été retenu et livré
+
+Commits sur `main` : `82b58f5` (phase 1) → `9508c91` (phase 2) → `0ad6340` (phase 3) →
+`90881a9` (correctifs revue passe 1) → `4828b98` (correctif revue passe 2).
+Revue finale : 3 sous-agents critiques (design / scène / tests), passe 1 NOT READY ×3 →
+correctifs → **passe 2 PERFECT ×3** (rapports `.vibe/critiques/*-phase4-pass2.md`).
+
+| Outil | Intégré ? | Où | Mesure |
+|---|---|---|---|
+| `@vercel/analytics` + `speed-insights` | ✅ prod only | `main.ts` (import dynamique derrière `import.meta.env.PROD`) | +~1,8 Ko gzip, 0 requête en dev |
+| `sharp` (WebP/AVIF/srcset/LQIP) | ✅ | `scripts/build-data.mjs`, `ui.ts`, `main.ts`, `index.html` | poids servi −28 % (414 Ko initial) / **−46 %** visite complète ; 13/13 images WebP ; CLS images corrigé (aspect-ratio) |
+| `vgpu`/`webgpu` (Dawn) build-time | ✅ | `scripts/gen-textures.mjs` → `public/assets/textures/*.webp`, chargées dans `scene.ts` avec fallback canvas 2D | **boot −35 %** (3254 → 2100 ms), textures pixel-identiques, 0 erreur console, fallback testé |
+| `@modelcontextprotocol/*` | ✅ dev only | `scripts/mcp-server.mjs` + `scripts/mcp/`, `docs/mcp.md`, `npm run mcp` / `mcp:selftest` | 10 tools, selftest 11/11 PASS, bundle client inchangé |
+| `@tweenjs/tween.js` | ✅ | `controls.ts` (focus caméra Cubic.Out 700 ms, reduced = saut direct) | +6 Ko gzip, arrivée exacte mesurée |
+| `three-mesh-bvh` | ✅ | `paintings.ts` (MeshBVH + acceleratedRaycast + firstHitOnly), raycasters réutilisés, plaques de salles cliquables | +64 Ko gzip, mémoire BVH 83 Ko à dup=8, pick vérifié au clic réel |
+| `@dimforge/rapier3d-compat` | ✅ lazy | `src/gallery/physics.ts` + `controls.ts` (capsule vs murs/bancs/portails/tableaux, glissade) | chunk séparé 2,05 Mo (762 Ko gzip) chargé 1× au 1er mode libre, **0 requête au boot** ; collisions mesurées au cm ; fallback `?nophys=1` |
+| `meshoptimizer` | ⏸️ réserve | — | inutile tant que la géométrie est 100 % procédurale ; utile avec de vrais GLB |
+| dettes perf `main.ts` | ✅ | `currentIndex` binaire puis nearest-work, pool de spots par fenêtre d'indices (plus de sort/frame) | draw calls identiques, 0 régression pixel |
+
+Hors intégration : E1 (compute WGSL **runtime**) non retenu — E2 (précalcul build) couvre le besoin
+sans risque navigateur ni double backend runtime. WebGPURenderer (three r187) non retenu non plus.
+
+## 7. Bonus — dettes perf remarquées dans le code (hors outils)
 
 - `src/main.ts` `tick()` : `[...entries].sort(...)` **à chaque frame** pour le pool de spots
   (les z sont fixes → précalculer l'ordre ou garder un index de proximité).
