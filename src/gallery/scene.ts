@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 
 import { HALL_HEIGHT, HALL_WIDTH, Z_START, hallBounds, type Layout } from './layout';
+
+import { HEMI, ROOF_LAYER, SKY_FILL, SUN, TableSpots } from './lights';
 
 export interface SceneContext {
   renderer: THREE.WebGLRenderer;
@@ -10,12 +13,19 @@ export interface SceneContext {
   camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight;
   spotPool: THREE.SpotLight[];
+  /** Contrôleur du pool de spots (hystérésis + fondu). `main.ts` l'appelle par frame. */
+  spots: TableSpots;
 }
 
 interface TexOpts {
   repeat?: [number, number];
   aniso: number;
 }
+
+/** Échelle de texture du plâtre : 1 tuile = 8,5 m dans les deux directions (P2-4). */
+const PLASTER_TILE = 8.5;
+/** Échelle de texture du plafond (la tuile suit les UV en mètres de l'extrusion). */
+const CEILING_TILE = 6.4;
 
 function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -90,11 +100,15 @@ function plasterTexture(aniso: number, len: number): THREE.Texture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [Math.max(2, Math.round(len / 9)), 1] }, '#f2ede4');
+  }, { aniso, repeat: [Math.max(1, len / PLASTER_TILE), HALL_HEIGHT / PLASTER_TILE] }, '#f2ede4');
 }
 
-/** Enduit de plafond 2048. */
-function ceilingTexture(aniso: number, len: number): THREE.Texture {
+/**
+ * Enduit de plafond 2048. La géométrie du plafond est extrudée depuis une `Shape` dont
+ * les UV valent des **mètres** (WorldUVGenerator) : le repeat se contente donc de ramener
+ * une tuile à CEILING_TILE mètres, quelle que soit la découpe de la trémie.
+ */
+function ceilingTexture(aniso: number): THREE.Texture {
   return precalcTexture('ceiling', 2048, (g, s) => {
     g.fillStyle = '#faf8f3';
     g.fillRect(0, 0, s, s);
@@ -115,7 +129,43 @@ function ceilingTexture(aniso: number, len: number): THREE.Texture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [HALL_WIDTH / 6, Math.max(1, Math.round(len / 6))] }, '#faf8f3');
+  }, { aniso, repeat: [1 / CEILING_TILE, 1 / CEILING_TILE] }, '#faf8f3');
+}
+
+/**
+ * Dégradé radial de la verrière (audit §3.1) : cœur à 1,0 (seul dépassement du seuil de
+ * bloom avec la lentille), bords à ~0,30. Utilisé comme `emissiveMap` : la dalle cesse
+ * d'être un aplat blanc brûlé et gagne un halo central (P1-6).
+ */
+function skylightEmissiveTexture(): THREE.Texture {
+  const w = 64;
+  const h = 256;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  if (!g) throw new Error('Contexte 2D indisponible');
+  const img = g.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    const v = ((y + 0.5) / h) * 2 - 1;
+    const ends = 1 - 0.34 * Math.pow(Math.abs(v), 2.4);
+    for (let x = 0; x < w; x++) {
+      const u = ((x + 0.5) / w) * 2 - 1;
+      const core = 1 - 0.68 * Math.pow(Math.abs(u), 1.6);
+      const val = Math.max(0, Math.round(255 * core * ends));
+      const i = (y * w + x) * 4;
+      img.data[i] = val;
+      img.data[i + 1] = val;
+      img.data[i + 2] = val;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
 }
 
 /** Parquet chêne : teinte par lame, veines, joints de bout, micro-rayures. Tuile = 3,6 m. */
@@ -268,28 +318,74 @@ function moldingGeometry(profile: [number, number][], len: number): THREE.Extrud
   return new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
 }
 
+/** Multiplie les UV d'une géométrie (corrige l'échelle du plâtre sur les murs de bout, P2-4). */
+function scaleUV(geo: THREE.BufferGeometry, su: number, sv: number): THREE.BufferGeometry {
+  const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
+  if (!uv) return geo;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
+  uv.needsUpdate = true;
+  return geo;
+}
+
+/**
+ * Dalle de plafond **avec trémie** (audit D1) : l'ouverture de la verrière est découpée
+ * dans la dalle, qui projette donc son ombre. C'est ce qui fait entrer la lumière
+ * (P1-3) : la trame des meneaux tombe au sol au lieu d'un sol uniformément inondé.
+ * Une seule `Shape` extrudée sur 6 cm : 1 draw call, arêtes de trémie réelles.
+ */
+function ceilingWithLightwell(
+  halfWidth: number,
+  halfLength: number,
+  halfOpeningW: number,
+  halfOpeningZ: number,
+  thickness: number,
+): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(-halfWidth, -halfLength);
+  shape.lineTo(halfWidth, -halfLength);
+  shape.lineTo(halfWidth, halfLength);
+  shape.lineTo(-halfWidth, halfLength);
+  shape.closePath();
+  const hole = new THREE.Path();
+  hole.moveTo(-halfOpeningW, -halfOpeningZ);
+  hole.lineTo(-halfOpeningW, halfOpeningZ);
+  hole.lineTo(halfOpeningW, halfOpeningZ);
+  hole.lineTo(halfOpeningW, -halfOpeningZ);
+  hole.closePath();
+  shape.holes.push(hole);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 1 });
+  geo.rotateX(-Math.PI / 2); // plan XY → plan horizontal, extrusion vers +y
+  return geo;
+}
+
 export function createScene(
   canvas: HTMLCanvasElement,
   layout: Layout,
   pixelRatio: number,
   opts: { shadows: boolean; coarse: boolean },
 ): SceneContext {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  // MSAA du canvas désactivé quand le post-processing prend le relais (il a son propre
+  // MSAA sur render target) ; on le garde en mobile, où le post démarre en 'off'.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: opts.coarse, powerPreference: 'high-performance' });
   renderer.setPixelRatio(pixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  // ACES reste l'unique tone mapper ; 0,95 compense l'apport du bloom et de l'AO.
+  renderer.toneMappingExposure = 0.95;
   renderer.shadowMap.enabled = opts.shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // `PCFSoftShadowMap` a été retiré de three 0.187 (il retombe sur PCF avec un warning).
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
   const aniso = Math.min(maxAniso, opts.coarse ? 8 : 16);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xfaf7f2);
+  // Fond aligné sur le brouillard : la profondeur ne se referme plus sur un blanc vide.
+  scene.background = new THREE.Color(0xf2ebe0);
   const { zMin, zMax } = hallBounds(layout);
   const len = zMax - zMin;
   const cz = (zMin + zMax) / 2;
-  scene.fog = new THREE.Fog(0xfaf7f2, 18, Math.max(45, len * 0.55));
+  // 10 % de voile au fond au lieu de 28 % (P1-7).
+  scene.fog = new THREE.FogExp2(0xf2ebe0, 0.013);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -297,42 +393,48 @@ export function createScene(
 
   const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 120);
   camera.position.set(2.7, 1.6, Z_START);
+  // Le toit vit sur ROOF_LAYER : la caméra doit le voir (voir lights.ts).
+  camera.layers.enable(ROOF_LAYER);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4b2, 0.5));
+  scene.add(new THREE.HemisphereLight(HEMI.sky, HEMI.ground, opts.coarse ? HEMI.coarseIntensity : HEMI.intensity));
 
-  const sun = new THREE.DirectionalLight(0xfff2df, 2.3);
-  sun.position.set(2.5, 15, cz);
+  const sun = new THREE.DirectionalLight(SUN.color, SUN.intensity);
+  sun.position.set(SUN.position.x, SUN.position.y, cz + SUN.position.z);
   sun.target.position.set(0, 0, cz);
   scene.add(sun);
   scene.add(sun.target);
   if (opts.shadows) {
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -10;
-    sun.shadow.camera.right = 10;
-    sun.shadow.camera.top = zMax + 2;
-    sun.shadow.camera.bottom = zMin - 2;
+    const size = opts.coarse ? SUN.shadow.mapSizeCoarse : SUN.shadow.mapSize;
+    sun.shadow.mapSize.set(size, size);
+    sun.shadow.camera.left = -SUN.shadow.halfX;
+    sun.shadow.camera.right = SUN.shadow.halfX;
+    sun.shadow.camera.top = SUN.shadow.halfZ;
+    sun.shadow.camera.bottom = -SUN.shadow.halfZ;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 40;
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.02;
+    sun.shadow.bias = SUN.shadow.bias;
+    sun.shadow.normalBias = SUN.shadow.normalBias;
+    sun.shadow.radius = 2;
+    // Le toit (couche ROOF_LAYER) doit projeter : la shadow map du soleil a besoin d'un
+    // masque non trivial pour ne pas retomber sur les layers de la caméra.
+    sun.shadow.camera.layers.enable(ROOF_LAYER);
   }
 
-  // Pool de vrais spots « tableau » (3 desktop / 1 mobile) — positionnés par main.ts selon la caméra.
-  const spotCount = opts.coarse ? 1 : 3;
-  const spotPool: THREE.SpotLight[] = [];
-  for (let i = 0; i < spotCount; i++) {
-    const s = new THREE.SpotLight(0xfff1da, 0, 8, 0.48, 1.0, 1.8);
-    s.castShadow = false;
-    if (opts.shadows) {
-      s.shadow.mapSize.set(1024, 1024);
-      s.shadow.bias = -0.0004;
-      s.shadow.normalBias = 0.01;
-    }
-    scene.add(s);
-    scene.add(s.target);
-    spotPool.push(s);
+  // Ciel diffus de la trémie : RectAreaLight = substitut crédible de ciel, sans ombre ni
+  // CSM. Desktop uniquement (coût LTC par fragment, aucune ombre — audit §4.3).
+  if (SKY_FILL.enabled && !opts.coarse) {
+    RectAreaLightUniformsLib.init();
+    const sky = new THREE.RectAreaLight(SKY_FILL.color, SKY_FILL.intensity, SKY_FILL.width, SKY_FILL.height);
+    sky.position.set(0, SKY_FILL.y, cz);
+    sky.rotation.x = Math.PI / 2; // normale vers le bas
+    sky.layers.set(0);
+    scene.add(sky);
   }
+
+  // Pool de spots « tableau » (3 desktop / 1 mobile) — piloté par main.ts via TableSpots.
+  const spots = new TableSpots(scene, { count: opts.coarse ? 1 : 3, shadows: opts.shadows });
+  const spotPool = spots.pool;
 
   const plasterTex = plasterTexture(aniso, len);
   const plaster = new THREE.MeshStandardMaterial({
@@ -340,7 +442,7 @@ export function createScene(
     bumpMap: plasterTex,
     bumpScale: 0.02,
     roughness: 0.94,
-    envMapIntensity: 0.5,
+    envMapIntensity: 0.3,
   });
   const { map: floorMap, roughnessMap: floorRough } = floorTextures(aniso, len, opts.coarse);
   const floorMat = new THREE.MeshPhysicalMaterial({
@@ -349,21 +451,21 @@ export function createScene(
     roughness: 0.38,
     clearcoat: 0.5,
     clearcoatRoughness: 0.4,
-    envMapIntensity: 0.6,
+    envMapIntensity: 0.4,
   });
   const ceilMat = new THREE.MeshStandardMaterial({
-    map: ceilingTexture(aniso, len),
+    map: ceilingTexture(aniso),
     roughness: 1,
-    envMapIntensity: 0.3,
+    envMapIntensity: 0.25,
   });
   const wood = new THREE.MeshPhysicalMaterial({
     color: 0x6e5638,
     roughness: 0.4,
     clearcoat: 0.35,
     clearcoatRoughness: 0.4,
-    envMapIntensity: 0.7,
+    envMapIntensity: 0.45,
   });
-  const trim = new THREE.MeshStandardMaterial({ color: 0xf8f4ec, roughness: 0.9, envMapIntensity: 0.4 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xf8f4ec, roughness: 0.9, envMapIntensity: 0.35 });
   const metalDark = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.4, metalness: 0.6, envMapIntensity: 0.5 });
   const runnerMat = new THREE.MeshStandardMaterial({
     map: runnerTexture(aniso, len),
@@ -373,55 +475,84 @@ export function createScene(
     polygonOffsetFactor: -1,
   });
 
-  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh => {
+  const add = (
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+    o?: { cast?: boolean; layer?: number },
+  ): THREE.Mesh => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
     m.receiveShadow = opts.shadows;
+    m.castShadow = o?.cast === true && opts.shadows;
+    if (o?.layer !== undefined) m.layers.set(o.layer);
     scene.add(m);
     return m;
   };
 
   const floor = add(new THREE.PlaneGeometry(HALL_WIDTH, len), floorMat, 0, 0, cz);
   floor.rotation.x = -Math.PI / 2;
-  const ceil = add(new THREE.PlaneGeometry(HALL_WIDTH, len), ceilMat, 0, HALL_HEIGHT, cz);
-  ceil.rotation.x = Math.PI / 2;
 
   const runner = add(new THREE.PlaneGeometry(3.2, len - 1.5), runnerMat, 3.4, 0.006, cz);
   runner.rotation.x = -Math.PI / 2;
 
-  add(new THREE.BoxGeometry(0.25, HALL_HEIGHT, len), plaster, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
-  add(new THREE.BoxGeometry(0.25, HALL_HEIGHT, len), plaster, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
-  add(new THREE.BoxGeometry(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25), plaster, 0, HALL_HEIGHT / 2, zMax);
-  add(new THREE.BoxGeometry(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25), plaster, 0, HALL_HEIGHT / 2, zMin);
-
-  // Verrière structurée : vitre émissive + châssis métallique (meneaux + traverses + cadre)
+  // ---- Dalle de plafond avec trémie (la lumière entre par l'ouverture) ----
   const skylightW = HALL_WIDTH * 0.42;
+  const skylightL = len * 0.94;
+  const ceil = add(
+    ceilingWithLightwell(HALL_WIDTH / 2, len / 2, skylightW / 2, skylightL / 2, 0.06),
+    ceilMat,
+    0,
+    HALL_HEIGHT,
+    cz,
+    { cast: true, layer: ROOF_LAYER },
+  );
+  ceil.name = 'plafond-tremie';
+
+  // ---- Murs (l'échelle du plâtre est corrigée par les UV, P2-4) ----
+  const wallU = len / PLASTER_TILE; // tuiles sur un mur long (base commune)
+  const endWallU = (HALL_WIDTH + 0.5) / PLASTER_TILE / wallU;
+  const wallGeo = (w: number, h: number, d: number, endWall: boolean): THREE.BufferGeometry =>
+    scaleUV(new THREE.BoxGeometry(w, h, d), endWall ? endWallU : 1, 1);
+  add(wallGeo(0.25, HALL_HEIGHT, len, false), plaster, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
+  add(wallGeo(0.25, HALL_HEIGHT, len, false), plaster, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
+  add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, true), plaster, 0, HALL_HEIGHT / 2, zMax);
+  add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, true), plaster, 0, HALL_HEIGHT / 2, zMin);
+
+  // ---- Verrière : vitre émissive (dégradé) + châssis projetant ----
   const pane = new THREE.Mesh(
-    new THREE.PlaneGeometry(skylightW, len * 0.94),
+    new THREE.PlaneGeometry(skylightW, skylightL),
     new THREE.MeshStandardMaterial({
       color: 0xeef3f7,
       emissive: 0xfffdf2,
-      emissiveIntensity: 0.95,
+      emissiveMap: skylightEmissiveTexture(),
+      emissiveIntensity: 1.25,
       roughness: 0.15,
       metalness: 0.05,
+      envMapIntensity: 0.3,
     }),
   );
   pane.rotation.x = Math.PI / 2;
-  pane.position.set(0, HALL_HEIGHT - 0.015, cz);
+  pane.position.set(0, HALL_HEIGHT, cz);
+  pane.layers.set(ROOF_LAYER);
   scene.add(pane);
+
+  const memberY = HALL_HEIGHT - 0.05;
   // cadre périphérique
-  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, HALL_HEIGHT - 0.02, zMin + len * 0.03);
-  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, HALL_HEIGHT - 0.02, zMax - len * 0.03);
-  add(new THREE.BoxGeometry(0.07, 0.1, len * 0.94), metalDark, -skylightW / 2, HALL_HEIGHT - 0.02, cz);
-  add(new THREE.BoxGeometry(0.07, 0.1, len * 0.94), metalDark, skylightW / 2, HALL_HEIGHT - 0.02, cz);
-  // meneaux longitudinaux
+  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, memberY, cz - skylightL / 2, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, memberY, cz + skylightL / 2, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(0.07, 0.1, skylightL), metalDark, -skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(0.07, 0.1, skylightL), metalDark, skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
+  // meneaux longitudinaux (3) — ils dessinent la trame au sol
   for (let k = 1; k < 4; k++) {
     const x = -skylightW / 2 + (skylightW * k) / 4;
-    add(new THREE.BoxGeometry(0.05, 0.09, len * 0.94), metalDark, x, HALL_HEIGHT - 0.02, cz);
+    add(new THREE.BoxGeometry(0.05, 0.09, skylightL), metalDark, x, memberY, cz, { cast: true, layer: ROOF_LAYER });
   }
   // traverses
-  for (let z = zMin + 2.4; z < zMax - 1; z += 2.4) {
-    add(new THREE.BoxGeometry(skylightW, 0.09, 0.05), metalDark, 0, HALL_HEIGHT - 0.02, z);
+  for (let z = cz - skylightL / 2 + 2.4; z < cz + skylightL / 2 - 1; z += 2.4) {
+    add(new THREE.BoxGeometry(skylightW, 0.09, 0.05), metalDark, 0, memberY, z, { cast: true, layer: ROOF_LAYER });
   }
 
   // Moulures en relief (extrudées) : couronne en haut, plinthe en bas
@@ -483,5 +614,5 @@ export function createScene(
     scene.add(plaque);
   }
 
-  return { renderer, scene, camera, sun, spotPool };
+  return { renderer, scene, camera, sun, spotPool, spots };
 }

@@ -12,6 +12,8 @@ import { GalleryControls } from './gallery/controls';
 
 import { Minimap } from './gallery/minimap';
 
+import { createPost, type PostPipeline } from './gallery/post';
+
 import { initUI, metaLine, type IndexGroup, setResponsiveImg, pickUrl, webpSupported } from './ui';
 
 async function boot(): Promise<void> {
@@ -103,7 +105,7 @@ async function boot(): Promise<void> {
   const layout = computeLayout(data, viewDist);
   const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
   const shadows = !coarse;
-  const { renderer, scene, camera, sun, spotPool } = createScene(canvas, layout, pixelRatio, { shadows, coarse });
+  const { renderer, scene, camera, sun, spots } = createScene(canvas, layout, pixelRatio, { shadows, coarse });
   const entries = buildPaintings(scene, layout, shadows);
   const texAniso = touch ? 4 : 8;
 
@@ -329,6 +331,11 @@ async function boot(): Promise<void> {
     });
   }
 
+  // Post-processing (audit 3D §4.1) : AO → bloom → sortie ACES → SMAA → grain.
+  // createPost() renvoie null si la cible HalfFloat n'existe pas (très vieux GPU) :
+  // le rendu direct reste alors utilisé, sans dégradation fonctionnelle.
+  const post: PostPipeline | null = createPost(renderer, scene, camera, { shadows, coarse });
+
   function resize(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -338,6 +345,7 @@ async function boot(): Promise<void> {
     camera.fov = aspect < 1 ? Math.min(74, 62 / Math.sqrt(aspect)) : 58;
     camera.updateProjectionMatrix();
     minimap.relayout();
+    post?.setSize(w, h);
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
@@ -372,28 +380,10 @@ async function boot(): Promise<void> {
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
 
-    // Pool de spots « tableau » : les k plus proches de la caméra allument leur œuvre.
-    // Sur une grille régulière (SLOT_SPACING), les 3 plus proches sont toujours dans la
-    // fenêtre idx-2..idx+2 (preuve : tout i <= idx-3 ou i >= idx+2 est à plus de 2*SLOT_SPACING
-    // de camZ, donc moins proche que idx-1, idx et idx+1) -> sélection O(1) au lieu d'un
-    // tri O(n log n) de toutes les entries à chaque frame. Tri à taille constante sur la
-    // fenêtre (stable, ordre = index) => strictement identique au tri global précédent.
-    const window: number[] = [];
-    for (let j = Math.max(0, idx - 2); j <= Math.min(layout.placed.length - 1, idx + 2); j++) window.push(j);
-    window.sort((a, b) => Math.abs(layout.placed[a].z - camZ) - Math.abs(layout.placed[b].z - camZ));
-    spotPool.forEach((s, i) => {
-      const wi = window[i];
-      const p = wi !== undefined ? layout.placed[wi] : undefined;
-      if (!p) {
-        s.intensity = 0;
-        return;
-      }
-      s.position.set(p.x - 0.35, p.y + p.h / 2 + 1.25, p.z + 0.55);
-      s.target.position.set(p.x, p.y - 0.05, p.z);
-      s.target.updateMatrixWorld();
-      s.intensity = 15;
-      s.castShadow = shadows && i < 2; // ombre uniquement sur les 2 plus proches (desktop)
-    });
+    // Pool de spots « tableau » : TableSpots (lights.ts) choisit les k œuvres les plus
+    // proches, avec hystérésis et fondu de 350 ms — plus de téléport du pool.
+    spots.hoverIndex = hoverId ? layout.placed.findIndex((q) => q.work.id === hoverId) : -1;
+    spots.update(camZ, layout.placed, dt);
 
     // fenêtre d'ombre du soleil follows the camera (évite les texels géants en hall long)
     if (shadows) {
@@ -432,7 +422,8 @@ async function boot(): Promise<void> {
     }
     if (panelWork && Math.abs(camZ - panelWork.z) <= 3.2) panelTravelUntil = 0;
     minimap.update(camZ, cur?.work.id ?? null);
-    renderer.render(scene, camera);
+    if (post) post.render(dt);
+    else renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
   tick();
@@ -442,7 +433,12 @@ async function boot(): Promise<void> {
     scene,
     layout,
     controls,
-    perf: () => ({ render: { ...renderer.info.render }, memory: { ...renderer.info.memory } }),
+    perf: () => ({
+      render: { ...renderer.info.render },
+      memory: { ...renderer.info.memory },
+      post: post ? { ...post.stats } : null,
+    }),
+    post,
   };
 }
 

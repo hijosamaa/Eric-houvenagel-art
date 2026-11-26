@@ -6,6 +6,8 @@ import type { Work } from '../types';
 
 import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
+import { buildFrame, type FrameBuild } from './frames';
+
 // Patch unique (niveau module) : raycast accéléré par BVH quand geometry.boundsTree
 // est présent, sinon retombe sur le raycast three d'origine (comportement identique).
 // Le flag raycaster.firstHitOnly = true (voir controls.ts / main.ts) ne garde que le hit le plus proche.
@@ -17,18 +19,31 @@ export interface PaintingEntry {
   placed: PlacedWork;
   group: THREE.Group;
   imageMesh: THREE.Mesh;
+  frame: FrameBuild;
   tex: THREE.Texture | null;
   loaded: boolean;
   loadStarted: boolean;
 }
+
+/**
+ * Émissif de la toile (P0-3) : la luminance doit venir de la lumière, pas du matériau.
+ * 0 au repos, 0,03 au survol — le survol est porté par le spot (`TABLE_SPOT.hoverBoost`)
+ * et par le curseur, pas par la toile qui s'« allume » comme un écran.
+ */
+const CANVAS_EMISSIVE_IDLE = 0;
+const CANVAS_EMISSIVE_HOVER = 0.03;
+
+/** Anisotropie minimale des toiles : le sujet ne doit pas être le moins bien filtré (P1-8). */
+const CANVAS_MIN_ANISO = 8;
+const CANVAS_MAX_ANISO = 16;
 
 let hoveredId: string | null = null;
 
 function applyHover(e: PaintingEntry): void {
   const mat = e.imageMesh.material as THREE.MeshStandardMaterial;
   const active = e.placed.work.id === hoveredId;
-  mat.emissiveIntensity = active && e.loaded ? 0.3 : e.loaded ? 0.1 : 0;
-  e.group.scale.setScalar(active ? 1.02 : 1);
+  mat.emissiveIntensity = active && e.loaded ? CANVAS_EMISSIVE_HOVER : CANVAS_EMISSIVE_IDLE;
+  e.group.scale.setScalar(active ? 1.012 : 1);
 }
 
 export function setHovered(id: string | null, entries: PaintingEntry[]): void {
@@ -99,71 +114,56 @@ function labelGeometry(index: number, w: number, h: number): THREE.PlaneGeometry
 
 // -----------------------------------------------------------------------------
 
-export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: boolean): PaintingEntry[] {
-  const frameMat = new THREE.MeshPhysicalMaterial({
-    color: 0x8a6a45,
-    roughness: 0.32,
-    clearcoat: 0.4,
-    clearcoatRoughness: 0.35,
-    envMapIntensity: 0.8,
-  });
-  const matBoardMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, envMapIntensity: 0.3 });
-  const housingMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.35, metalness: 0.65, envMapIntensity: 0.6 });
-  const lensMat = new THREE.MeshBasicMaterial({ color: 0xfff3dd });
-  const shadowMat = new THREE.MeshBasicMaterial({
-    color: 0x1a1a1a,
-    transparent: true,
-    opacity: 0.16,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-  });
-
+/**
+ * Construit les œuvres : cadre + passe-partout + luminaire via `frames.ts` (P0-1, P0-2),
+ * toile seule à recevoir la texture.
+ *
+ * `coarse` est optionnel pour rester compatible avec l'appel actuel de `main.ts` ;
+ * il ne sert qu'à couper le verre de la variante muséale.
+ */
+export function buildPaintings(
+  scene: THREE.Scene,
+  layout: Layout,
+  shadows: boolean,
+  coarse = false,
+): PaintingEntry[] {
   const atlas = buildLabelAtlas(layout.placed.map((p) => p.work));
   const labelMat = new THREE.MeshBasicMaterial({ map: atlas });
+  const entries: PaintingEntry[] = [];
 
-  return layout.placed.map((p, i) => {
+  layout.placed.forEach((p, i) => {
     const group = new THREE.Group();
     group.position.set(p.x, p.y, p.z);
     group.rotation.y = -Math.PI / 2;
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.16, p.h + 0.16, 0.08), frameMat);
-    frame.castShadow = shadows;
-    const matBoard = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.08, p.h + 0.08), matBoardMat);
-    matBoard.position.z = 0.045;
-    const imgMat = new THREE.MeshStandardMaterial({ color: 0xe3ded6, roughness: 0.88, envMapIntensity: 0.25 });
-    // BVH sur la geometry du tableau : accélère le pick (raycaster.firstHitOnly)
+    const frame = buildFrame(p.w, p.h, { shadows, coarse });
+    group.add(frame.root);
+
+    // Toile : plan nu, sans émissif (la lumière fait tout), BVH pour le picking.
+    const imgMat = new THREE.MeshStandardMaterial({
+      color: 0xe3ded6,
+      roughness: 0.8,
+      envMapIntensity: 0.1,
+    });
     const imgGeo = new THREE.PlaneGeometry(p.w, p.h);
     imgGeo.boundsTree = new MeshBVH(imgGeo);
     const imageMesh = new THREE.Mesh(imgGeo, imgMat);
-    imageMesh.position.z = 0.055;
+    imageMesh.position.z = frame.imageZ;
     imageMesh.userData.workId = p.work.id;
+    imageMesh.name = 'toile';
+    group.add(imageMesh);
 
-    // Vrai appareil d'éclairage de tableau (picture light) : bras + boîtier métal + lentille émissive
-    const fy = p.h / 2 + 0.13;
-    // bras qui traversent le mur (local z négatif = dans le mur) jusqu'au boîtier
-    const armGeo = new THREE.BoxGeometry(0.025, 0.17, 0.14);
-    const armL = new THREE.Mesh(armGeo, housingMat);
-    armL.position.set(-(p.w / 2 + 0.1), fy, 0.015);
-    const armR = new THREE.Mesh(armGeo, housingMat);
-    armR.position.set(p.w / 2 + 0.1, fy, 0.015);
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.28, 0.07, 0.075), housingMat);
-    housing.position.set(0, fy, 0.115);
-    housing.castShadow = shadows;
-    const lens = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.2, 0.028), lensMat);
-    lens.position.set(0, fy, 0.154);
-
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.24, p.h + 0.24), shadowMat);
-    shadow.position.set(0.012, -0.02, -0.042);
-
-    // Cartel musée : collé au cadre, hauteur ~1,05 m
+    // Cartel musée : à côté du cadre, hauteur ~1,05 m, à 5 mm du parement.
     const label = new THREE.Mesh(labelGeometry(i, 0.22, 0.135), labelMat);
-    label.position.set((p.w + 0.16) / 2 + 0.1, -p.h / 2 + 0.3, 0.06);
+    label.position.set(frame.halfWidth + 0.1, -p.h / 2 + 0.3, 0.0525);
+    label.name = 'cartel';
+    group.add(label);
 
-    group.add(frame, matBoard, imageMesh, armL, armR, housing, lens, shadow, label);
     scene.add(group);
-    return { placed: p, group, imageMesh, tex: null, loaded: false, loadStarted: false };
+    entries.push({ placed: p, group, imageMesh, frame, tex: null, loaded: false, loadStarted: false });
   });
+
+  return entries;
 }
 
 export function ensureTexture(entry: PaintingEntry, baseUrl: string, aniso: number, onLoad?: () => void): void {
@@ -171,9 +171,13 @@ export function ensureTexture(entry: PaintingEntry, baseUrl: string, aniso: numb
   entry.loadStarted = true;
   new THREE.TextureLoader().load(baseUrl + entry.placed.work.image, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = aniso;
+    // P1-8 : les toiles sont vues en incidence rasante (mur latéral) ; 8 minimum, 16 si
+    // le renderer le permet (three borne à `capabilities.getMaxAnisotropy()`).
+    tex.anisotropy = Math.min(CANVAS_MAX_ANISO, Math.max(CANVAS_MIN_ANISO, aniso));
     const mat = entry.imageMesh.material as THREE.MeshStandardMaterial;
     mat.map = tex;
+    // L'emissiveMap reste branchée : c'est le canal du survol (intensité 0,03), donc
+    // aucune texture supplémentaire et aucun re-upload au hover.
     mat.emissiveMap = tex;
     mat.emissive = new THREE.Color(0xffffff);
     mat.color.set(0xffffff);
