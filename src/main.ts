@@ -146,12 +146,16 @@ async function boot(): Promise<void> {
     let hi = ps.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      // hystérésis 5 cm : au focus, la caméra peut s'arrêter epsilon avant viewZ sans
-      // faire passer le compteur sur l'œuvre suivante
-      if (ps[mid].z > camZ + 0.05) lo = mid + 1;
+      if (ps[mid].z > camZ) lo = mid + 1;
       else hi = mid;
     }
-    return Math.min(lo, ps.length - 1);
+    // nearest work : entre le candidat lo-1 (z <= camZ) et lo (z > camZ), prendre le plus
+    // proche — robuste à tout epsilon d'arrêt (focus tween ou best-fit scroll à dup>=3)
+    const a = lo - 1;
+    const b = lo;
+    if (a < 0) return 0;
+    if (b >= ps.length) return ps.length - 1;
+    return Math.abs(ps[a].z - camZ) <= Math.abs(ps[b].z - camZ) ? a : b;
   }
 
   let navTarget: number | null = null;
