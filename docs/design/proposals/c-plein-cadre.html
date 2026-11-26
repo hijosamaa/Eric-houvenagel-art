@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Maquette C — Plein cadre</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      /* ============ DIRECTION C — « Plein cadre » =============================
+         Repos : un wordmark, un filet. Rien d'autre.
+         Au mouvement (ou au premier scroll) : une seule ligne de légende
+         au centre bas + deux flèches + un accès Index en haut à droite.
+         C'est la direction qui retire le plus : zéro carte, zéro pastille,
+         zéro compteur, zéro bannière de salle.
+         ========================================================================= */
+      .progress { position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--line); z-index: 12; }
+      .progress__fill { height: 1px; width: 25%; background: var(--accent); opacity: 0.8; }
+
+      .mark {
+        position: absolute; top: 26px; left: 34px; z-index: 10;
+        font-family: var(--serif);
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--muted);
+        transition: color var(--d-ui) var(--e-out);
+      }
+
+      .index-link {
+        position: absolute; top: 26px; right: 34px; z-index: 10;
+        background: none; border: 0;
+        font-size: 9.5px; letter-spacing: 0.26em; text-transform: uppercase;
+        color: var(--muted);
+        border-bottom: 1px solid transparent;
+        padding: 2px 0;
+        cursor: pointer;
+        opacity: 0; transform: translateY(-4px);
+        transition: opacity var(--d-ui) var(--e-out), transform var(--d-ui) var(--e-out), color var(--d-fast);
+      }
+      .index-link:hover { color: var(--ink); border-color: var(--line); }
+
+      /* la légende : une ligne, au centre bas */
+      .line {
+        position: absolute; left: 50%; bottom: 42px; z-index: 10;
+        transform: translate(-50%, 6px);
+        display: flex; align-items: center; gap: 18px;
+        opacity: 0;
+        transition: opacity var(--d-panel) var(--e-out), transform var(--d-panel) var(--e-out);
+        max-width: min(90vw, 780px);
+      }
+      .line__arrow {
+        flex: none;
+        width: 30px; height: 30px;
+        border: 0; border-radius: var(--r-round);
+        background: transparent;
+        color: var(--muted);
+        font-size: 15px; cursor: pointer;
+        display: grid; place-items: center;
+        transition: color var(--d-fast), background var(--d-fast);
+      }
+      .line__arrow:hover { color: var(--ink); background: rgba(255, 253, 249, 0.7); }
+
+      .line__text {
+        display: flex; align-items: baseline; gap: 10px;
+        white-space: nowrap;
+        padding: 6px 22px;
+        background: linear-gradient(90deg, rgba(250, 247, 242, 0), rgba(250, 247, 242, 0.62) 18%, rgba(250, 247, 242, 0.62) 82%, rgba(250, 247, 242, 0));
+        backdrop-filter: blur(2px);
+      }
+      .line__title {
+        font-family: var(--serif); font-style: italic; font-weight: 500;
+        font-size: 17px; color: var(--ink);
+      }
+      .line__sep { color: var(--line); }
+      .line__meta { font-size: 11.5px; color: var(--muted); letter-spacing: 0.02em; }
+      .line__num { font-size: 9.5px; letter-spacing: 0.22em; color: var(--muted); }
+
+      /* état révélé */
+      body.reveal .line { opacity: 1; transform: translate(-50%, 0); }
+      body.reveal .index-link { opacity: 1; transform: translateY(0); }
+      body.reveal .mark { color: var(--ink); }
+
+      @media (max-width: 720px) {
+        .plate { background-image: url('refs/plate-mob-045.jpg') !important; }
+
+        .mark { top: 18px; left: 18px; font-size: 10.5px; letter-spacing: 0.2em; }
+        .index-link { top: 18px; right: 18px; font-size: 8.5px; }
+        .line {
+          left: 16px; right: 16px; bottom: 26px;
+          transform: translateY(6px);
+          max-width: none;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        body.reveal .line { transform: translateY(0); }
+        .line__text { flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px; white-space: normal; }
+        .line__title { font-size: 15px; }
+        .line__meta { font-size: 10px; }
+        .line__sep { display: none; }
+        .line__num { display: none; }
+        .line__arrow { width: 40px; height: 40px; font-size: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="plate" style="background-image: url('refs/plate-wall-wide.jpg')"></div>
+
+      <div class="progress"><div class="progress__fill"></div></div>
+
+      <span class="mark">Eric Houvenagel</span>
+
+      <button class="index-link">Index</button>
+
+      <div class="line">
+        <button class="line__arrow" aria-label="Œuvre précédente">‹</button>
+        <div class="line__text">
+          <span class="line__num num">02</span>
+          <span class="line__title">Morbihan</span>
+          <span class="line__sep">—</span>
+          <span class="line__meta">2026</span>
+          <span class="line__sep">—</span>
+          <span class="line__meta">Aquarelle sur papier 300 g et wax</span>
+        </div>
+        <button class="line__arrow" aria-label="Œuvre suivante">›</button>
+      </div>
+    </div>
+    <script>
+      if (new URLSearchParams(location.search).get('reveal') === '1') document.body.classList.add('reveal');
+    </script>
+  </body>
+</html>

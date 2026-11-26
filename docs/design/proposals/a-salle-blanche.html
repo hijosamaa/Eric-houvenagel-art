@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Maquette A — Salle blanche</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      /* ============ DIRECTION A — « Salle blanche » ==============================
+         Trois amas de chrome, aucun ailleurs :
+           1. haut-gauche   : wordmark + discipline
+           2. bas-gauche    : légende (salle · position, titre, méta)
+           3. bas-droite    : précédent / suivant / index
+         Supprimés : minimap, pastilles, pilule HUD, compteur géant,
+         bannière de salle en pilule, hint de défilement, hint mode libre,
+         curseur custom. Reste un filet de progression 1 px en haut.
+         ========================================================================= */
+      #progress {
+        position: absolute;
+        top: 0; left: 0;
+        height: 1px;
+        width: 44%;
+        background: var(--accent);
+        z-index: 12;
+        opacity: 0.85;
+      }
+
+      /* ---- amas 1 : identité ---- */
+      .brand {
+        position: absolute;
+        top: 28px; left: 32px;
+        z-index: 10;
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+      }
+      .brand__name {
+        font-family: var(--serif);
+        font-weight: 600;
+        font-size: 19px;
+        letter-spacing: 0.005em;
+        color: var(--ink);
+      }
+      .brand__rule {
+        width: 22px; height: 1px;
+        background: var(--line);
+        transform: translateY(-4px);
+      }
+      .brand__sub {
+        font-size: 9.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      /* ---- amas 2 : légende ---- */
+      .caption {
+        position: absolute;
+        left: 32px; bottom: 34px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-width: 46ch;
+      }
+      .caption__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 2px;
+      }
+      .caption__room {
+        font-size: 9.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .caption__dot {
+        width: 3px; height: 3px;
+        border-radius: var(--r-round);
+        background: var(--line);
+      }
+      .caption__count {
+        font-size: 9.5px;
+        letter-spacing: 0.2em;
+        color: var(--muted);
+      }
+      .caption__title {
+        font-family: var(--serif);
+        font-weight: 500;
+        font-style: italic;
+        font-size: 27px;
+        line-height: 1.06;
+        color: var(--ink);
+        letter-spacing: -0.004em;
+        text-shadow: 0 1px 0 rgba(250, 247, 242, 0.55);
+      }
+      .caption__meta {
+        font-size: 12px;
+        letter-spacing: 0.015em;
+        color: var(--muted);
+        text-shadow: 0 1px 0 rgba(250, 247, 242, 0.5);
+      }
+
+      /* ---- amas 3 : navigation ---- */
+      .nav {
+        position: absolute;
+        right: 32px; bottom: 30px;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .nav__arrow {
+        width: 36px; height: 36px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-round);
+        background: rgba(255, 253, 249, 0.62);
+        backdrop-filter: blur(4px);
+        color: var(--ink);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        transition: border-color var(--d-fast), background var(--d-fast), color var(--d-fast);
+      }
+      .nav__arrow:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .nav__index {
+        margin-left: 8px;
+        background: none;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        padding: 3px 0;
+        font-size: 9.5px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ink);
+        cursor: pointer;
+        transition: border-color var(--d-fast), color var(--d-fast);
+      }
+      .nav__index:hover { border-color: var(--accent); color: var(--accent); }
+
+      /* ---------------- mobile ---------------- */
+      @media (max-width: 720px) {
+        .plate { background-image: url('refs/plate-mob-045.jpg') !important; }
+
+        #progress { width: 40%; }
+        .brand { top: 16px; left: 16px; gap: 10px; }
+        .brand__name { font-size: 15.5px; }
+        .brand__rule { display: none; }
+        .brand__sub { font-size: 8.5px; letter-spacing: 0.18em; }
+
+        .caption { left: 16px; bottom: 84px; gap: 4px; }
+        .caption__title { font-size: 21px; }
+        .caption__meta { font-size: 10.5px; }
+        .caption__room, .caption__count { font-size: 8.5px; letter-spacing: 0.18em; }
+
+        .nav { left: 16px; right: 16px; bottom: 20px; justify-content: flex-start; gap: 8px; }
+        .nav__index { margin-left: auto; }
+        .nav__arrow {
+          width: 44px; height: 44px;
+          font-size: 15px;
+          background: rgba(255, 253, 249, 0.8);
+        }
+        .nav__index { font-size: 9px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="plate" style="background-image: url('refs/plate-wall-wide.jpg')"></div>
+      <div id="progress"></div>
+
+      <header class="brand">
+        <span class="brand__name">Eric Houvenagel</span>
+        <span class="brand__rule"></span>
+        <span class="brand__sub">Huile &amp; aquarelle</span>
+      </header>
+
+      <div class="caption">
+        <div class="caption__head">
+          <span class="caption__room">Marines &amp; Bretagne</span>
+          <span class="caption__dot"></span>
+          <span class="caption__count num">02 / 05</span>
+        </div>
+        <h1 class="caption__title">Morbihan</h1>
+        <p class="caption__meta">2026 — Aquarelle sur papier 300 g et wax</p>
+      </div>
+
+      <nav class="nav">
+        <button class="nav__arrow" aria-label="Œuvre précédente">‹</button>
+        <button class="nav__arrow" aria-label="Œuvre suivante">›</button>
+        <button class="nav__index">Index</button>
+      </nav>
+    </div>
+  </body>
+</html>

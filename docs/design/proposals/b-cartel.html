@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Maquette B — Cartel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      /* ============ DIRECTION B — « Cartel » ==================================
+         Deux amas seulement :
+           1. haut-gauche : wordmark
+           2. bas, pleine largeur : UNE ligne qui EST la carte du hall
+              (légende · rail avec les 5 œuvres et les 3 salles · navigation)
+         La minimap en carte flottante disparaît : le rail est le plan.
+         ========================================================================= */
+      .brand {
+        position: absolute; top: 28px; left: 32px; z-index: 10;
+        display: flex; align-items: baseline; gap: 14px;
+      }
+      .brand__name { font-family: var(--serif); font-weight: 600; font-size: 19px; color: var(--ink); }
+      .brand__rule { width: 22px; height: 1px; background: var(--line); transform: translateY(-4px); }
+      .brand__sub { font-size: 9.5px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
+
+      .bar {
+        position: absolute;
+        left: 0; right: 0; bottom: 0;
+        z-index: 10;
+        padding: 0 32px 26px;
+        background: linear-gradient(rgba(250, 247, 242, 0), rgba(250, 247, 242, 0.55) 34%, rgba(250, 247, 242, 0.78));
+      }
+      .bar__rule { height: 1px; background: var(--line); margin-bottom: 18px; }
+      .bar__inner {
+        display: grid;
+        grid-template-columns: minmax(240px, 340px) 1fr auto;
+        align-items: end;
+        gap: 40px;
+      }
+
+      .caption { display: flex; flex-direction: column; gap: 4px; }
+      .caption__count {
+        font-size: 9.5px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted);
+      }
+      .caption__title {
+        font-family: var(--serif); font-weight: 500; font-style: italic;
+        font-size: 24px; line-height: 1.1; letter-spacing: -0.004em; color: var(--ink);
+      }
+      .caption__meta { font-size: 12px; color: var(--muted); }
+
+      /* ---- le rail : carte du hall, sans carte ---- */
+      .rail {
+        position: relative;
+        height: 34px;
+        margin-bottom: 14px;
+      }
+      .rail__line {
+        position: absolute; left: 0; right: 0; top: 22px;
+        height: 1px; background: var(--line);
+      }
+      .rail__fill {
+        position: absolute; left: 0; top: 22px;
+        height: 1px; background: var(--accent); opacity: 0.55;
+      }
+      .rail__stop {
+        position: absolute; top: 18px;
+        width: 1px; height: 9px;
+        background: var(--muted); opacity: 0.45;
+      }
+      .rail__stop.on { top: 15px; height: 15px; width: 1px; background: var(--accent); opacity: 1; }
+      .rail__room {
+        position: absolute; top: 0;
+        font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+        color: var(--muted); opacity: 0.7; white-space: nowrap;
+      }
+      .rail__room.on { color: var(--accent); opacity: 1; }
+      .rail__cam {
+        position: absolute; top: 16px;
+        width: 2px; height: 13px; background: var(--ink);
+        transform: translateX(-1px);
+      }
+
+      .nav { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
+      .nav__arrow {
+        width: 36px; height: 36px;
+        border: 1px solid var(--line); border-radius: var(--r-round);
+        background: transparent; color: var(--ink);
+        font-size: 14px; cursor: pointer; display: grid; place-items: center;
+        transition: border-color var(--d-fast), color var(--d-fast);
+      }
+      .nav__arrow:hover { border-color: var(--accent); color: var(--accent); }
+      .nav__index {
+        margin-left: 8px; background: none; border: 0;
+        border-bottom: 1px solid var(--line); padding: 3px 0;
+        font-size: 9.5px; letter-spacing: 0.24em; text-transform: uppercase;
+        color: var(--ink); cursor: pointer;
+      }
+      .nav__index:hover { border-color: var(--accent); color: var(--accent); }
+
+      @media (max-width: 720px) {
+        .plate { background-image: url('refs/plate-mob-045.jpg') !important; }
+
+        .brand { top: 16px; left: 16px; gap: 10px; }
+        .brand__name { font-size: 15.5px; }
+        .brand__rule, .brand__sub { display: none; }
+        .bar { padding: 0 16px 18px; }
+        .bar__inner {
+          grid-template-columns: 1fr auto;
+          grid-template-areas: 'cap nav' 'rail rail';
+          row-gap: 14px;
+        }
+        .caption { grid-area: cap; }
+        .caption__title { font-size: 19px; }
+        .caption__meta { font-size: 10.5px; }
+        .nav { grid-area: nav; padding-bottom: 0; gap: 8px; }
+        .nav__arrow { width: 44px; height: 44px; font-size: 15px; }
+        .nav__index { display: none; }
+        .rail { grid-area: rail; margin-bottom: 0; }
+        .rail__room { font-size: 8px; letter-spacing: 0.16em; }
+        .bar { background: linear-gradient(rgba(250, 247, 242, 0), rgba(250, 247, 242, 0.86)); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="plate" style="background-image: url('refs/plate-wall-wide.jpg')"></div>
+
+      <header class="brand">
+        <span class="brand__name">Eric Houvenagel</span>
+        <span class="brand__rule"></span>
+        <span class="brand__sub">Huile &amp; aquarelle</span>
+      </header>
+
+      <footer class="bar">
+        <div class="bar__rule"></div>
+        <div class="bar__inner">
+          <div class="caption">
+            <span class="caption__count num">02 / 05</span>
+            <h1 class="caption__title">Morbihan</h1>
+            <p class="caption__meta">2026 — Aquarelle sur papier 300 g et wax</p>
+          </div>
+
+          <div class="rail">
+            <div class="rail__line"></div>
+            <div class="rail__fill" style="width: 25%"></div>
+            <span class="rail__room on" style="left: 0">Marines &amp; Bretagne</span>
+            <span class="rail__room" style="left: 54%">Figures</span>
+            <span class="rail__room" style="right: 0">Abstractions</span>
+            <span class="rail__stop" style="left: 0"></span>
+            <span class="rail__stop on" style="left: 25%"></span>
+            <span class="rail__stop" style="left: 50%"></span>
+            <span class="rail__stop" style="left: 75%"></span>
+            <span class="rail__stop" style="left: 100%"></span>
+            <span class="rail__cam" style="left: 25%"></span>
+          </div>
+
+          <nav class="nav">
+            <button class="nav__arrow" aria-label="Œuvre précédente">‹</button>
+            <button class="nav__arrow" aria-label="Œuvre suivante">›</button>
+            <button class="nav__index">Index</button>
+          </nav>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
