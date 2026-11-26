@@ -478,6 +478,8 @@ export function createScene(
     );
     // posée SUR la face du linteau (pas dans l'ouverture)
     plaque.position.set(0, HALL_HEIGHT - 0.225, z + 0.18);
+    // cliquable : index de la salle suivante (géré par main.ts via controls.onZonePick)
+    plaque.userData.zoneIndex = i + 1;
     scene.add(plaque);
   }
 

@@ -30,6 +30,15 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // Analytics Vercel uniquement en prod (dynamic import : le serveur dev ne charge
+  // ni ne sert aucun script analytics).
+  if (import.meta.env.PROD) {
+    const { inject } = await import('@vercel/analytics');
+    inject();
+    const { injectSpeedInsights } = await import('@vercel/speed-insights');
+    injectSpeedInsights();
+  }
+
   const res = await fetch(`${base}data/works.json`);
   const data = (await res.json()) as GalleryData;
   const dupParam = Number(new URLSearchParams(location.search).get('dup') || '0');
@@ -103,7 +112,18 @@ async function boot(): Promise<void> {
 
   const controls = new GalleryControls(camera, layout, canvas);
   controls.reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  controls.pickMeshes = entries.map((e) => e.imageMesh);
+  // Plaques laiton des portails (userData.zoneIndex posé dans scene.ts) : rendues cliquables
+  const plaqueMeshes: THREE.Object3D[] = [];
+  scene.traverse((o) => {
+    if (typeof o.userData.zoneIndex === 'number') plaqueMeshes.push(o);
+  });
+  controls.pickMeshes = [...entries.map((e) => e.imageMesh), ...plaqueMeshes];
+  // Clic sur une plaque de portail -> focus sur la 1ère œuvre de la salle suivante
+  controls.onZonePick = (zi) => {
+    const zone = layout.zones[zi];
+    const first = zone ? layout.placed.find((p) => p.roomName === zone.name) : undefined;
+    if (first) focusWork(first);
+  };
 
   const minimap = new Minimap(document.getElementById('minimap') as HTMLElement, layout);
 
@@ -117,12 +137,19 @@ async function boot(): Promise<void> {
 
   const clampIdx = (i: number): number => Math.min(Math.max(i, 0), layout.placed.length - 1);
 
+  // layout.placed est trié par z décroissant (z_i = Z_FIRST - i*SLOT_SPACING) :
+  // recherche binaire du nombre d'œuvres avec z > camZ, en O(log n) au lieu de O(n).
   function currentIndex(camZ: number): number {
     const ps = layout.placed;
     if (ps.length === 0) return 0;
-    let passed = 0;
-    for (const p of ps) if (p.z > camZ) passed++;
-    return Math.min(passed, ps.length - 1);
+    let lo = 0;
+    let hi = ps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (ps[mid].z > camZ) lo = mid + 1;
+      else hi = mid;
+    }
+    return Math.min(lo, ps.length - 1);
   }
 
   let navTarget: number | null = null;
@@ -294,6 +321,7 @@ async function boot(): Promise<void> {
   let mouseNdc: THREE.Vector2 | null = null;
   let hoverDirty = false;
   let hoverId: string | null = null;
+  let hitZone = false;
   let pointerSeen = false;
   const cursor = document.getElementById('cursor');
   const cursorPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -339,7 +367,9 @@ async function boot(): Promise<void> {
 
   let lastRoom = '';
   const clock = new THREE.Clock();
+  // Raycaster réutilisé pour le hover (champ unique) + BVH firstHitOnly (boundsTree sur les tableaux)
   const ray = new THREE.Raycaster();
+  ray.firstHitOnly = true;
   function tick(): void {
     const dt = Math.min(clock.getDelta(), 0.05);
     controls.update(dt);
@@ -353,24 +383,35 @@ async function boot(): Promise<void> {
       hoverDirty = false;
       ray.setFromCamera(mouseNdc, camera);
       const hits = ray.intersectObjects(controls.pickMeshes, false);
-      hoverId = (hits[0]?.object.userData.workId as string | undefined) ?? null;
+      const hitObj = hits[0]?.object;
+      hoverId = (hitObj?.userData.workId as string | undefined) ?? null;
+      hitZone = hitObj?.userData.zoneIndex !== undefined;
       setHovered(hoverId, entries);
-      canvas.style.cursor = hoverId ? 'pointer' : 'grab';
+      const clickable = hoverId !== null || hitZone;
+      canvas.style.cursor = clickable ? 'pointer' : 'grab';
     }
     if (cursor && fine) {
       cursorPos.x += (cursorTarget.x - cursorPos.x) * Math.min(1, dt * 12);
       cursorPos.y += (cursorTarget.y - cursorPos.y) * Math.min(1, dt * 12);
       cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
       cursor.style.opacity = pointerSeen ? '1' : '0';
-      cursor.classList.toggle('big', hoverId !== null);
+      cursor.classList.toggle('big', hoverId !== null || hitZone);
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
 
-    // Pool de spots « tableau » : les plus proches de la caméra allument leur œuvre
-    const near = [...entries].sort((a, b) => Math.abs(a.placed.z - camZ) - Math.abs(b.placed.z - camZ));
+    // Pool de spots « tableau » : les k plus proches de la caméra allument leur œuvre.
+    // Sur une grille régulière (SLOT_SPACING), les 3 plus proches sont toujours dans la
+    // fenêtre idx-2..idx+2 (preuve : tout i <= idx-3 ou i >= idx+2 est à plus de 2*SLOT_SPACING
+    // de camZ, donc moins proche que idx-1, idx et idx+1) -> sélection O(1) au lieu d'un
+    // tri O(n log n) de toutes les entries à chaque frame. Tri à taille constante sur la
+    // fenêtre (stable, ordre = index) => strictement identique au tri global précédent.
+    const window: number[] = [];
+    for (let j = Math.max(0, idx - 2); j <= Math.min(layout.placed.length - 1, idx + 2); j++) window.push(j);
+    window.sort((a, b) => Math.abs(layout.placed[a].z - camZ) - Math.abs(layout.placed[b].z - camZ));
     spotPool.forEach((s, i) => {
-      const p = near[i]?.placed;
+      const wi = window[i];
+      const p = wi !== undefined ? layout.placed[wi] : undefined;
       if (!p) {
         s.intensity = 0;
         return;

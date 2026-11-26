@@ -1,7 +1,12 @@
 import * as THREE from 'three';
+import { Tween, Easing, Group } from '@tweenjs/tween.js';
+
 import { HALL_WIDTH, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
 
 export type Mode = 'guided' | 'free';
+
+/** Durée du trajet caméra « focus » en mode libre (ms) — easing Cubic.Out (voir focusOn). */
+const FOCUS_DURATION_MS = 700;
 
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
@@ -12,9 +17,8 @@ const angDiff = (a: number, b: number): number => {
   return d;
 };
 
-const angLerp = (a: number, b: number, t: number): number => a + angDiff(a, b) * t;
-
-interface FocusAnim {
+/** État animé par le tween de focus : position caméra (x, z) + angles. */
+interface FocusState {
   x: number;
   z: number;
   yaw: number;
@@ -26,6 +30,7 @@ export class GalleryControls {
   reduced = false;
   pickMeshes: THREE.Object3D[] = [];
   onPick: ((p: PlacedWork) => void) | null = null;
+  onZonePick: ((zoneIndex: number) => void) | null = null;
   onNext: (() => void) | null = null;
   onPrev: (() => void) | null = null;
   onEscape: (() => void) | null = null;
@@ -35,17 +40,23 @@ export class GalleryControls {
   private readonly curve: THREE.CatmullRomCurve3;
   private readonly pos: THREE.Vector3;
   private readonly lookVec = new THREE.Vector3(HALL_WIDTH / 2, WALL_Y, Z_START - 4);
+  private readonly raycaster = new THREE.Raycaster();
   private targetT = 0;
   private t = 0;
   private yaw = 0;
   private pitch = 0;
   private readonly keys = new Set<string>();
   private drag: { x: number; y: number } | null = null;
-  private focusAnim: FocusAnim | null = null;
+  private focusTween: Tween<FocusState> | null = null;
+  // Groupe tween.js dédié (v25 : new Tween(obj) sans groupe n'est PAS ajouté au groupe global)
+  private readonly tweenGroup = new Group();
 
   constructor(camera: THREE.PerspectiveCamera, layout: Layout, canvas: HTMLCanvasElement) {
     this.camera = camera;
     this.layout = layout;
+    // Raycaster réutilisé (créé une seule fois) + BVH : ne garde que le 1er hit
+    // (voir three-mesh-bvh dans paintings.ts, acceleratedRaycast).
+    this.raycaster.firstHitOnly = true;
 
     this.pos = new THREE.Vector3(layout.pathX, 1.6, Z_START);
     const pts: THREE.Vector3[] = [new THREE.Vector3(layout.pathX, 1.6, Z_START + 1.2)];
@@ -82,7 +93,7 @@ export class GalleryControls {
       const dx = e.clientX - this.drag.x;
       const dy = e.clientY - this.drag.y;
       this.drag = { x: e.clientX, y: e.clientY };
-      if (this.mode === 'free' && !this.focusAnim) {
+      if (this.mode === 'free' && !this.focusTween) {
         this.yaw -= dx * 0.0032;
         this.pitch = clamp(this.pitch - dy * 0.0028, -0.55, 0.65);
       }
@@ -105,7 +116,9 @@ export class GalleryControls {
 
   setMode(mode: Mode): void {
     this.mode = mode;
-    this.focusAnim = null;
+    // tue tout tween de focus en cours (équivalent de l'ancien focusAnim = null)
+    this.focusTween?.stop();
+    this.focusTween = null;
     if (mode === 'free') {
       this.yaw = 0;
       this.pitch = 0;
@@ -119,12 +132,34 @@ export class GalleryControls {
 
   focusOn(p: PlacedWork): void {
     const pos = this.camera.position;
-    this.focusAnim = {
-      x: p.viewX,
-      z: p.viewZ,
-      yaw: Math.atan2(-(p.x - pos.x), -(p.z - pos.z)),
-      pitch: 0.03,
-    };
+    let targetYaw = Math.atan2(-(p.x - pos.x), -(p.z - pos.z));
+    // chemin angulaire le plus court (comme l'ancien angLerp)
+    targetYaw = this.yaw + angDiff(this.yaw, targetYaw);
+    const target: FocusState = { x: p.viewX, z: p.viewZ, yaw: targetYaw, pitch: 0.03 };
+    this.focusTween?.stop();
+    if (this.reduced) {
+      // prefers-reduced-motion : saut direct, aucune animation (duration 0)
+      pos.x = target.x;
+      pos.z = target.z;
+      this.yaw = target.yaw;
+      this.pitch = target.pitch;
+      this.focusTween = null;
+      return;
+    }
+    const state: FocusState = { x: pos.x, z: pos.z, yaw: this.yaw, pitch: this.pitch };
+    this.focusTween = new Tween(state, this.tweenGroup)
+      .to(target, FOCUS_DURATION_MS)
+      .easing(Easing.Cubic.Out)
+      .onUpdate((s) => {
+        pos.x = s.x;
+        pos.z = s.z;
+        this.yaw = s.yaw;
+        this.pitch = s.pitch;
+      })
+      .onComplete(() => {
+        this.focusTween = null;
+      })
+      .start();
   }
 
   scrollToWork(p: PlacedWork): void {
@@ -136,6 +171,10 @@ export class GalleryControls {
   }
 
   update(dt: number): void {
+    // Pilote les tweens du groupe dédié (Group.update() sans argument = now()) — appelé à
+    // chaque frame depuis la boucle tick() de main.ts via controls.update(dt).
+    this.tweenGroup.update();
+
     if (this.mode === 'guided') {
       if (this.reduced) this.t = this.targetT;
       else this.t += (this.targetT - this.t) * Math.min(1, dt * 7.5);
@@ -148,24 +187,8 @@ export class GalleryControls {
       this.camera.lookAt(this.lookVec);
     } else {
       const pos = this.camera.position;
-      if (this.focusAnim) {
-        const a = this.focusAnim;
-        if (this.reduced) {
-          pos.x = a.x;
-          pos.z = a.z;
-          this.yaw = a.yaw;
-          this.pitch = a.pitch;
-          this.focusAnim = null;
-        } else {
-          pos.x += (a.x - pos.x) * Math.min(1, dt * 5);
-          pos.z += (a.z - pos.z) * Math.min(1, dt * 5);
-          this.yaw = angLerp(this.yaw, a.yaw, Math.min(1, dt * 5));
-          this.pitch += (a.pitch - this.pitch) * Math.min(1, dt * 5);
-          if (Math.hypot(a.x - pos.x, a.z - pos.z) < 0.04 && Math.abs(angDiff(this.yaw, a.yaw)) < 0.02) {
-            this.focusAnim = null;
-          }
-        }
-      } else {
+      if (!this.focusTween) {
+        // mouvement clavier (WASD) uniquement hors trajet focus
         const speed = 3.4 * dt;
         const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
         const r = new THREE.Vector3(-f.z, 0, f.x);
@@ -213,13 +236,18 @@ export class GalleryControls {
       ((cx - rect.left) / rect.width) * 2 - 1,
       -((cy - rect.top) / rect.height) * 2 + 1,
     );
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.camera);
-    const hits = ray.intersectObjects(this.pickMeshes, false);
-    const id = hits[0]?.object.userData.workId as string | undefined;
-    if (!id) return;
-    const p = this.layout.placed.find((q) => q.work.id === id);
-    if (p) this.onPick?.(p);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.raycaster.intersectObjects(this.pickMeshes, false);
+    const obj = hits[0]?.object;
+    const id = obj?.userData.workId as string | undefined;
+    if (id) {
+      const p = this.layout.placed.find((q) => q.work.id === id);
+      if (p) this.onPick?.(p);
+      return;
+    }
+    // plaque laiton d'un portail : saute à la 1ère œuvre de la salle suivante
+    const zi = obj?.userData.zoneIndex as number | undefined;
+    if (zi !== undefined) this.onZonePick?.(zi);
   }
 
   private onKey(e: KeyboardEvent): void {

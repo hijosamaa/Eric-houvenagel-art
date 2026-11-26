@@ -4,6 +4,15 @@ import type { Layout, PlacedWork } from './layout';
 
 import type { Work } from '../types';
 
+import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
+
+// Patch unique (niveau module) : raycast accéléré par BVH quand geometry.boundsTree
+// est présent, sinon retombe sur le raycast three d'origine (comportement identique).
+// Le flag raycaster.firstHitOnly = true (voir controls.ts / main.ts) ne garde que le hit le plus proche.
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+
 export interface PaintingEntry {
   placed: PlacedWork;
   group: THREE.Group;
@@ -123,7 +132,10 @@ export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: bool
     const matBoard = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.08, p.h + 0.08), matBoardMat);
     matBoard.position.z = 0.045;
     const imgMat = new THREE.MeshStandardMaterial({ color: 0xe3ded6, roughness: 0.88, envMapIntensity: 0.25 });
-    const imageMesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), imgMat);
+    // BVH sur la geometry du tableau : accélère le pick (raycaster.firstHitOnly)
+    const imgGeo = new THREE.PlaneGeometry(p.w, p.h);
+    imgGeo.boundsTree = new MeshBVH(imgGeo);
+    const imageMesh = new THREE.Mesh(imgGeo, imgMat);
     imageMesh.position.z = 0.055;
     imageMesh.userData.workId = p.work.id;
 
