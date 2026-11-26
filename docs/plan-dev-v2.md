@@ -72,7 +72,7 @@ cibles tactiles ≥ 24 px (idéal 38+).
 - Sélection critique de 8 éléments proposés à reprendre (intro wordmark centré, HUD
   discret + barre de progression fine en haut, compteur géant au focus, bloc « œuvre
   suivante », curseur « Voir », méta en ligne unique, transition panneau, hint mode
-  libre) → **l'utilisateur choisit par numéros, puis on implémente** (itération R2).
+  libre) → **l'utilisateur a validé les 8 → implémentées en R2** (commit revue-9).
 
 ### Itération N — Navigation & animations ✅ (corrigée, commit revue-8)
 - Bugs constatés : suivant/précédent ouvrait la fiche à chaque clic ; au dernier tableau
@@ -91,12 +91,14 @@ cibles tactiles ≥ 24 px (idéal 38+).
 - Hook de test `?dup=N` (duplique les œuvres N fois) pour tester une galerie longue /
   multi-salles sans polluer les données : `?dup=3` → 15 œuvres, parcours progressif OK.
 
-### Itération Q — Audit élément par élément (anti « slop ») ⬜ à faire après R2
+### Itération R2 — Implémenter les 8 choix de la veille ✅ (commit revue-9)
+### Itération Q — Audit élément par élément (anti « slop ») 🔄 passe 1 faite (revue-9)
 - Grille de check par composant (intro, brand, HUD, minimap, panneau, index, lightbox,
-  fin, mode libre, toast) × critères : placement exact, hiérarchie typo, espacement,
-  cohérence palette, pas d'élément qui « flotte », cibles tactiles, 390×844 + 360×740 +
-  1440×900. Chaque défaut trouvé → fix + re-screenshot. Ne pas s'arrêter à la première
-  passe : 2 passes complètes minimum.
+  fin, mode libre, toast, compteur géant, hints) × critères : placement exact, hiérarchie
+  typo, espacement, cohérence palette, pas d'élément qui « flotte », cibles tactiles,
+  390×844 + 360×740 + 1440×900. Défauts trouvés en passe 1 : aucun chevauchement réel
+  (mesures DOM), hint « Défiler » masqué sur tactile pour éviter tout conflit avec la
+  minimap. **Passe 2 à refaire à chaque livraison** (ne pas s'arrêter à la première).
 
 ### Itération C — Polish desktop & détails
 - Relire chaque écran desktop (intro, entrée, focus œuvre, panneau, index, lightbox,

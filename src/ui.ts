@@ -146,7 +146,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     $('lb-title').textContent = p.work.title;
     const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
       .filter(Boolean)
-      .join(' · ');
+      .join(' — ');
     $('lb-meta').textContent = bits;
     lightbox.classList.remove('hidden');
     ($('lb-close') as HTMLButtonElement).focus();
@@ -225,7 +225,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
           t.textContent = p.work.title;
           const m = document.createElement('span');
           m.className = 'index-card-meta';
-          m.textContent = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium].filter(Boolean).join(' · ');
+          m.textContent = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null].filter(Boolean).join(' — ');
           card.appendChild(img);
           card.appendChild(t);
           card.appendChild(m);
@@ -256,7 +256,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       $('panel-title').textContent = p.work.title;
       const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
         .filter(Boolean)
-        .join(' · ');
+        .join(' — ');
       $('panel-meta').textContent = bits;
       $('panel-desc').textContent = p.work.description;
       panel.classList.add('open');
@@ -287,6 +287,12 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     lightboxIsOpen: () => !lightbox.classList.contains('hidden'),
     showEnd(v) {
       endOverlay.classList.toggle('hidden', !v);
+      const thumb = $('end-thumb') as HTMLImageElement;
+      if (v && works.length > 0) {
+        const last = works[works.length - 1].work;
+        thumb.src = baseUrl + (last.image || last.imageFull);
+        thumb.alt = last.title;
+      }
     },
     setLoader(ratio, done) {
       $('loader-fill').style.width = `${Math.round(ratio * 100)}%`;
@@ -299,6 +305,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     },
     setFreeLabel(active) {
       $('btn-free').textContent = active ? 'Visite guidée' : 'Explorer librement';
+      document.body.classList.toggle('free', active);
     },
   };
 }

@@ -156,6 +156,7 @@ async function boot(): Promise<void> {
         entered = true;
         ui.hideIntro();
         document.getElementById('app')?.classList.add('ready');
+        scrollHint?.classList.add('show');
         ui.toast("Faites défiler pour avancer · cliquez sur un tableau ou son numéro pour l'observer", 8000);
       },
       onClosePanel: () => {
@@ -227,13 +228,22 @@ async function boot(): Promise<void> {
     }
   });
 
+  const hudBottom = document.getElementById('hud-bottom');
+  const scrollHint = document.getElementById('scroll-hint');
+  let idleTimer: number | undefined;
   window.addEventListener(
     'scroll',
     () => {
       if (!toastDismissed && window.scrollY > 30) {
         toastDismissed = true;
         ui.hideToast();
+        scrollHint?.classList.remove('show');
       }
+      hudBottom?.classList.remove('idle');
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => {
+        if (fine && entered) hudBottom?.classList.add('idle');
+      }, 2400);
     },
     { passive: true },
   );
@@ -307,6 +317,15 @@ async function boot(): Promise<void> {
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
+    const bc = document.getElementById('big-counter');
+    if (bc && cur) {
+      const near = Math.abs(camZ - cur.z) < 3;
+      bc.classList.toggle('show', entered && near);
+      const bcCur = document.getElementById('bc-cur');
+      const bcTotal = document.getElementById('bc-total');
+      if (bcCur) bcCur.textContent = String(idx + 1).padStart(2, '0');
+      if (bcTotal) bcTotal.textContent = String(layout.placed.length).padStart(2, '0');
+    }
     if (cur) {
       ui.setProgress(idx + 1, layout.placed.length, cur.roomName);
       ui.setActiveDot(idx);
