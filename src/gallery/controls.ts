@@ -3,6 +3,8 @@ import { Tween, Easing, Group } from '@tweenjs/tween.js';
 
 import { HALL_WIDTH, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
 
+import { createPhysics, type PhysicsWorld } from './physics';
+
 export type Mode = 'guided' | 'free';
 
 /** Durée du trajet caméra « focus » en mode libre (ms) — easing Cubic.Out (voir focusOn). */
@@ -50,6 +52,9 @@ export class GalleryControls {
   private focusTween: Tween<FocusState> | null = null;
   // Groupe tween.js dédié (v25 : new Tween(obj) sans groupe n'est PAS ajouté au groupe global)
   private readonly tweenGroup = new Group();
+  // Physique du mode libre (Rapier, chargement lazy au 1er setMode('free')) — null = fallback clamps
+  private physics: PhysicsWorld | null = null;
+  private physicsPromise: Promise<PhysicsWorld | null> | null = null;
 
   constructor(camera: THREE.PerspectiveCamera, layout: Layout, canvas: HTMLCanvasElement) {
     this.camera = camera;
@@ -124,14 +129,33 @@ export class GalleryControls {
       this.pitch = 0;
       document.documentElement.style.overflow = 'hidden';
       this.camera.position.set(this.pos.x, 1.6, this.pos.z);
+      // chargement lazy du chunk rapier au premier passage en mode libre
+      void this.ensurePhysics();
     } else {
       document.documentElement.style.overflow = '';
+      // resynchronise this.pos depuis la caméra (le mode guidé repart du point courant)
+      this.pos.copy(this.camera.position);
       this.readScroll();
     }
   }
 
+  /** Charge Rapier une seule fois (au 1er mode libre) ; en cas d'échec, physics reste null → clamps. */
+  private async ensurePhysics(): Promise<void> {
+    if (this.physics || this.physicsPromise) return;
+    this.physicsPromise = createPhysics(this.layout);
+    try {
+      this.physics = await this.physicsPromise;
+    } catch {
+      this.physics = null;
+    }
+    // resynchronise la capsule sur la position caméra courante
+    if (this.physics) this.physics.setPos(this.pos.x, this.pos.z);
+  }
+
   focusOn(p: PlacedWork): void {
     const pos = this.camera.position;
+    // en mode libre, téléporte aussi la capsule physique sur la cible du focus
+    if (this.mode === 'free') this.physics?.setPos(p.viewX, p.viewZ);
     let targetYaw = Math.atan2(-(p.x - pos.x), -(p.z - pos.z));
     // chemin angulaire le plus court (comme l'ancien angLerp)
     targetYaw = this.yaw + angDiff(this.yaw, targetYaw);
@@ -192,11 +216,24 @@ export class GalleryControls {
         const speed = 3.4 * dt;
         const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
         const r = new THREE.Vector3(-f.z, 0, f.x);
-        if (this.keys.has('KeyW')) pos.addScaledVector(f, speed);
-        if (this.keys.has('KeyS')) pos.addScaledVector(f, -speed);
-        if (this.keys.has('KeyA')) pos.addScaledVector(r, -speed);
-        if (this.keys.has('KeyD')) pos.addScaledVector(r, speed);
+        let dx = 0;
+        let dz = 0;
+        if (this.keys.has('KeyW')) { dx += f.x * speed; dz += f.z * speed; }
+        if (this.keys.has('KeyS')) { dx -= f.x * speed; dz -= f.z * speed; }
+        if (this.keys.has('KeyA')) { dx -= r.x * speed; dz -= r.z * speed; }
+        if (this.keys.has('KeyD')) { dx += r.x * speed; dz += r.z * speed; }
+        if (this.physics) {
+          // character controller Rapier : collisions murs/bancs/portails/tableaux + glissement
+          const np = this.physics.move(dx, dz);
+          pos.x = np.x;
+          pos.z = np.z;
+        } else {
+          // fallback (Rapier indisponible, ex. ?nophys=1) : clamps AABB manuels
+          pos.x += dx;
+          pos.z += dz;
+        }
       }
+      // clamp de secours large, identique aux bornes actuelles (sécurité derrière le physics)
       pos.x = clamp(pos.x, -(HALL_WIDTH / 2 - 0.8), HALL_WIDTH / 2 - 0.8);
       pos.z = clamp(pos.z, this.layout.zEnd + 1, Z_START + 1.6);
       pos.y = 1.6;
