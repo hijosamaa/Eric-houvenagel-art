@@ -13,6 +13,8 @@
 
 - [`design/audit-ui.md`](design/audit-ui.md) — audit mesuré du chrome, liste des 11 éléments à supprimer (`fichier:ligne`), plan d'application.
 - [`design/audit-3d.md`](design/audit-3d.md) — audit du rendu 3D (cadres, luminaires, lumière) + plan AO / bloom / TAA / grain et garde-fous de performance.
+- [`design/rebuild.md`](design/rebuild.md) — **ce qui a été appliqué** sur la branche `feat/rebuild-v3` (UI + 3D), les arbitrages restants et l'état de l'étape « rythme ».
+- [`design/3d-integration.md`](design/3d-integration.md) — câblage du post-processing et leviers de réglage du rendu.
 - [`design/proposals/`](design/proposals/) — trois directions de chrome (A « Salle blanche », B « Cartel », C « Plein cadre »), la fiche d'œuvre recomposée, les étalonnages 3D et le comparatif cadres/luminaires, en maquettes HTML + captures.
 
 Le système de design cible (tokens, échelle typographique, rayons, mouvement) est dans
