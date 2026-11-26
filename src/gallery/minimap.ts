@@ -126,7 +126,7 @@ export class Minimap {
     } else {
       // assez haut pour viser un écart de 28 px entre stops quand c'est possible
       // (28 = 24 px de stop + marge pour le scale 1.25 du stop actif)
-      trackLen = Math.min(460, Math.max(180, ((n - 1) * 28) / fraction));
+      trackLen = Math.min(560, Math.max(180, ((n - 1) * 28) / fraction));
       this.track.style.height = `${Math.round(trackLen)}px`;
       this.track.style.width = '';
     }

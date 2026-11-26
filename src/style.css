@@ -811,6 +811,10 @@ img {
   opacity: 1;
   visibility: visible;
 }
+/* en mode libre le scroll ne pilote plus la caméra : ne pas laisser le hint « Défiler » */
+body.free #scroll-hint {
+  display: none;
+}
 #scroll-hint i {
   display: block;
   width: 1px;

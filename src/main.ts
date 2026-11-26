@@ -146,7 +146,9 @@ async function boot(): Promise<void> {
     let hi = ps.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (ps[mid].z > camZ) lo = mid + 1;
+      // hystérésis 5 cm : au focus, la caméra peut s'arrêter epsilon avant viewZ sans
+      // faire passer le compteur sur l'œuvre suivante
+      if (ps[mid].z > camZ + 0.05) lo = mid + 1;
       else hi = mid;
     }
     return Math.min(lo, ps.length - 1);

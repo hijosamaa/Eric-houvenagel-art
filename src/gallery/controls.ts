@@ -233,8 +233,10 @@ export class GalleryControls {
           pos.z += dz;
         }
       }
-      // clamp de secours large, identique aux bornes actuelles (sécurité derrière le physics)
-      pos.x = clamp(pos.x, -(HALL_WIDTH / 2 - 0.8), HALL_WIDTH / 2 - 0.8);
+      // clamp de secours, aligné sur les bornes physiques (mur intérieur ±(HALL_WIDTH/2-0.125),
+      // capsule r=0.35, marge 0.02 → ±5.505) pour que fallback et physics aient les mêmes limites
+      const xLimit = HALL_WIDTH / 2 - 0.5;
+      pos.x = clamp(pos.x, -xLimit, xLimit);
       pos.z = clamp(pos.z, this.layout.zEnd + 1, Z_START + 1.6);
       pos.y = 1.6;
       this.pos.copy(pos);

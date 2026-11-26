@@ -53,6 +53,8 @@ export function fallbackSrc(work: Work): string {
 /** Pose srcset/sizes (format préféré) + LQIP en fond pendant le chargement. */
 export function setResponsiveImg(img: HTMLImageElement, work: Work, base: string, sizes: string): void {
   img.sizes = sizes;
+  // réserve la place avant le chargement (CLS=0) : ratio connu via works.json
+  if (work.ratio > 0) img.style.aspectRatio = String(work.ratio);
   const ss = srcsetFor(work, preferredFormat());
   if (ss) img.srcset = ss;
   img.src = base + fallbackSrc(work);
