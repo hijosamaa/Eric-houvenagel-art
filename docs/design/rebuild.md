@@ -43,56 +43,57 @@ Les quatre P0 de l'audit sont traités : cadre hors du mur et passe-partout non 
 luminaires fins qui éclairent vraiment, `emissiveIntensity` de la toile à ~0, chaîne de
 post-processing AO → bloom → ACES → SMAA → grain.
 
-## 3. Ce qu'il reste à trancher
+## 3. Les arbitrages, tranchés
 
-| # | Point | Constat sur les captures | Levier |
+| # | Point | Décision | Valeur livrée |
 |---|---|---|---|
-| 1 | **Couleur du cadre** | le cadre « discret » lit charbon, pas chêne : plus galerie contemporaine que le `#A08055` du guide de style | `FRAME_METRICS` dans `frames.ts` (teinte du bois), ou `FRAME_VARIANT = 'museum'` |
-| 2 | **Motif du plâtre** | la trame de la texture (tuile de 8,5 m) se devine sur les grands aplats de mur | échelle de tuile dans `scene.ts` (`PLASTER_TILE`) + atténuation du `bumpScale` |
-| 3 | **Halo de la tache solaire** | la tache de soleil sur le mur, en haut à gauche, bave un peu avec le bloom | `POST_TUNING.bloom.strength` 0,30 → 0,22 |
-| 4 | **Grain** | ±0,028 à 24 Hz se voit à 100 % ; c'est voulu, mais réglable | `POST_TUNING.grain.amount` |
-| 5 | **Cadrage au repos** | à `t = 0,45` la première toile est coupée par le bord gauche | `pathX` / `viewDist` dans `layout.ts` |
+| 1 | Direction de chrome | **B** — deux amas, le rail *est* le plan | fait |
+| 2 | Fiche d'œuvre | **bord à bord**, rayon 0, filet de 1 px sous l'image (sans lui, l'aquarelle blanche se confondait avec le papier du panneau) | fait |
+| 3 | Étalonnage 3D | **V1 « Pellicule »** : contraste +10 %, halo doux, grain discret | `bloom.strength 0.22`, `grain 0.020`, exposition 0,95 |
+| 4 | Cadres & luminaires | **A « discrète »** : chêne 55 mm, passe-partout 20 mm, tube laiton Ø 22 mm sur 74 % | `FRAME_VARIANT = 'discrete'` |
+| 5 | Index | **non rogné** (`contain`), dans des fenêtres 4/3 de même taille : l'œuvre entière est visible, la grille reste alignée. Rogner une aquarelle pour la faire entrer dans une vignette, c'est décider à la place du peintre de son cadrage | fait |
+| 6 | Intro | **bande de 3 aperçus conservée** : trois vraies toiles valent mieux qu'un mot seul pour donner envie d'entrer, et c'est la seule image du site qui ne soit pas de la 3D | fait |
+| 7 | Mode libre | **entrée dans l'index, pas de bouton permanent** : zéro chrome dans la scène, une seule porte, découvrable. Pas de raccourci clavier seul (un raccourci muet n'est pas découvrable, un raccourci annoncé est du chrome) | fait |
 
-Aucun de ces cinq points n'est bloquant : ce sont des curseurs, chacun sur une constante.
+### Couleur du cadre — chêne, pas charbon
 
-## 4. Rythme de scroll — non engagé, volontairement
+Le cadre « discret » était `0x2a2724`, presque noir : il lisait « galerie contemporaine » et pesait
+plus que les toiles sur un mur clair. Passé à **`0x7a5c3a`** (chêne moyen), qui rend un brun chaud
+sous l'exposition 0,95 + ACES sans sauter aux yeux, et qui est la couleur du guide de style.
 
-L'étape « GSAP ScrollTrigger » n'est **pas** implémentée. Décision et raisons :
+### Motif du plâtre — tuile plus large, bosse plus douce
 
-1. **Il n'y a qu'un seul driver de scroll, et il fonctionne.** `controls.ts` lit `window.scrollY`,
-   en dérive `targetT` et lisse la position. ScrollTrigger n'apporterait pas un driver meilleur ;
-   il apporterait des timelines scrubées, du pinning et du snap — dont on n'a besoin pour aucun
-   des effets visés ici.
-2. **Le coût est réel** : ~45 ko de plus sur un site qui sert déjà 2,8 Mo d'images et un bundle
-   three.js, pour un gain de rythme que l'on peut obtenir autrement.
-3. **Le risque est sur le chemin critique** : la navigation (flèches, clavier, rail, fin de
-   visite) passe toute par ce mapping scroll → caméra. Le réécrire juste avant livraison, sur une
-   branche qui n'a pas encore été vue sur appareil réel, c'est prendre le risque de casser la
-   seule chose que le visiteur utilise vraiment.
+La trame de la texture se devinait sur les grands aplats. `PLASTER_TILE` **8,5 m → 13 m** (moins de
+répétitions sur la longueur du hall) et `bumpScale` **0,02 → 0,014**.
 
-### Ce que « chorégraphier » voudrait dire concrètement
+### Halo et grain — V1, plus retenu
+
+`POST_TUNING.bloom.strength` **0,30 → 0,22** : la tache de soleil ne bave plus sur le mur.
+`grain.amount` **0,028 → 0,020** : présent à 100 %, invisible quand on regarde une toile.
+
+### Cadrage au repos — recul partiel, le reste au rythme
+
+`viewDist` desktop **2,6 → 2,85 m** : la caméra recule de 25 cm, les toiles respirent et la
+première ne touche plus le bord. La cause profonde (la caméra passe *à côté* d'une œuvre, pas
+devant) est un problème de **rythme**, pas de distance focale : c'est la courbe de « dwell » du
+point 4 qui la règle, en faisant s'arrêter la caméra face à chaque toile.
+
+## 4. Rythme de scroll — à lancer, comme convenu
+
+Décision : **on le fait, après**. Le plan est prêt, il ne dépend de rien d'autre.
 
 L'effet recherché (le rythme d'une salle de musée) est un **temps d'arrêt devant chaque œuvre**,
-pas une animation de plus. La façon la moins risquée de l'obtenir est une courbe, pas une
-bibliothèque :
+pas une animation de plus. Deux façons, par ordre de préférence :
 
-```
-t scroll (0 → 1)  ──►  camZ
-linéaire aujourd'hui : camZ = lerp(zFirst, zLast, t)
-proposé               : camZ = lerp(zFirst, zLast, dwell(t))
-                        où dwell() est monotone, dérivée ~0 sur ±8 % autour de chaque œuvre
-```
+1. **Courbe de « dwell », sans dépendance** (recommandé) — une fonction pure dans `layout.ts`,
+   ~25 lignes : `camZ = lerp(zFirst, zLast, dwell(t))` où `dwell()` est monotone et de dérivée
+   nulle sur ±8 % autour de chaque œuvre. La caméra ralentit devant chaque toile et accélère
+   entre deux, sans que le visiteur ait à arrêter de scroller. `progressT()` et la détection de
+   fin ne bougent pas. Repli linéaire en `prefers-reduced-motion`.
+2. **GSAP ScrollTrigger** — `ScrollTrigger` sur `#scroll-spacer`, `scrub: 0.6`, une seule timeline
+   de caméra, `post.render` gardé hors de la boucle GSAP, un seul `ScrollTrigger.refresh()` après
+   le chargement des textures. Plus de moyens (labels, snap, pinning), ~45 ko de plus et un
+   `ScrollTrigger.scrollerProxy` à câbler sur le scroll natif.
 
-- une fonction pure dans `layout.ts` (testable, sans DOM), ~25 lignes ;
-- `progressT()` et la détection de fin restent inchangés : seule la position intermédiaire bouge ;
-- effet : la caméra ralentit devant chaque tableau et accélère entre deux, sans que le visiteur
-  ait à s'arrêter de scroller ;
-- repli : `prefers-reduced-motion` → courbe linéaire.
-
-Deuxième effet, gratuit et déjà possible : le fondu de la légende quand on change d'œuvre
-(240 ms, `--d-ui`), aujourd'hui instantané.
-
-Si tu veux la version GSAP malgré tout, l'architecture propre est : `ScrollTrigger` sur le
-`#scroll-spacer` avec `scrub: 0.6`, une seule timeline de caméra, `web3d-integration-patterns`
-pour garder `post.render` hors de la boucle GSAP et un seul `ScrollTrigger.refresh()` après le
-chargement des textures. C'est un demi-jour de travail et une régression possible sur mobile.
+Dans les deux cas, le même bonus gratuit : le **fondu de la légende** (240 ms) quand on change
+d'œuvre, aujourd'hui instantané.

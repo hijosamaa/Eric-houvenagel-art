@@ -94,13 +94,13 @@ export const POST_TUNING = {
     denoise: { rings: 2, samples: 16, radius: 4 },
   },
   bloom: {
-    strength: 0.3,
+    strength: 0.22,
     radius: 0.55,
     threshold: 1.0,
     strengthLow: 0.2,
     thresholdLow: 1.2,
   },
-  grain: { amount: 0.028, hz: 24 },
+  grain: { amount: 0.02, hz: 24 },
   smaa: true,
 } as const;
 

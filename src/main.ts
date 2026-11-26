@@ -101,7 +101,7 @@ async function boot(): Promise<void> {
   const small = Math.min(window.innerWidth, window.innerHeight) < 640;
   const fine = window.matchMedia('(pointer: fine)').matches;
   const touch = coarse || small;
-  const viewDist = touch ? 4.2 : 2.6;
+  const viewDist = touch ? 4.2 : 2.85;
   const layout = computeLayout(data, viewDist);
   const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
   const shadows = !coarse;

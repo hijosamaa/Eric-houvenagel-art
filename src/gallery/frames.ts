@@ -124,10 +124,13 @@ let matCache: {
 function materials(): NonNullable<typeof matCache> {
   if (matCache) return matCache;
   const discrete = FRAME_VARIANT === 'discrete';
-  // Variante A : chêne fumé mat (audit A « noyer fumé » 0x2a2724) — l'IBL le sculpte,
-  // pas une couleur claire. Variante B : bois teinté chaud.
+  // Variante A : chêne mat. Le guide de style donne #A08055 pour les cadres : sous
+  // l'exposition 0,95 et l'ACES, un chêne moyen (0x7a5c3a) rend un brun chaud sans
+  // sauter aux yeux. Un cadre charbon (0x2a2724) lisait « galerie contemporaine »
+  // et pesait plus que les toiles sur un mur clair.
+  // Variante B : bois teinté plus clair, avec verre.
   const frame = new THREE.MeshPhysicalMaterial({
-    color: discrete ? 0x2a2724 : 0x7a6444,
+    color: discrete ? 0x7a5c3a : 0x94764d,
     roughness: discrete ? 0.62 : 0.45,
     metalness: 0,
     clearcoat: discrete ? 0.08 : 0.15,

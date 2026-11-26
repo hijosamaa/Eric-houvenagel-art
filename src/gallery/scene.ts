@@ -23,7 +23,7 @@ interface TexOpts {
 }
 
 /** Échelle de texture du plâtre : 1 tuile = 8,5 m dans les deux directions (P2-4). */
-const PLASTER_TILE = 8.5;
+const PLASTER_TILE = 13;
 /** Échelle de texture du plafond (la tuile suit les UV en mètres de l'extrusion). */
 const CEILING_TILE = 6.4;
 
@@ -440,7 +440,7 @@ export function createScene(
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
     bumpMap: plasterTex,
-    bumpScale: 0.02,
+    bumpScale: 0.014,
     roughness: 0.94,
     envMapIntensity: 0.3,
   });
