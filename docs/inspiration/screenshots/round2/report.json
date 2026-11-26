@@ -1,0 +1,218 @@
+[
+  {
+    "slug": "awwwards-sotd-wall",
+    "url": "https://www.awwwards.com/websites/sites_of_the_day/",
+    "ok": true,
+    "height": 5323,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-collection-threejs",
+    "url": "https://www.awwwards.com/awwwards/collections/three-js/",
+    "ok": true,
+    "height": 5872,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-collection-webgl",
+    "url": "https://www.awwwards.com/awwwards/collections/webgl/",
+    "ok": true,
+    "height": 5844,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-collection-virtual-gallery",
+    "url": "https://www.awwwards.com/immersive-webgl-virtual-gallery-exhibition-collection.html",
+    "ok": true,
+    "height": 15940,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-category-gallery",
+    "url": "https://www.awwwards.com/websites/gallery/",
+    "ok": true,
+    "height": 5269,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-scrolling",
+    "url": "https://www.awwwards.com/websites/scrolling/",
+    "ok": true,
+    "height": 5251,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-state-of-the-gallery",
+    "url": "https://www.awwwards.com/sites/the-state-of-the-gallery",
+    "ok": true,
+    "height": 11465,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-minh-pham",
+    "url": "https://www.awwwards.com/sites/minh-pham",
+    "ok": true,
+    "height": 3853,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-g-colombel-2026",
+    "url": "https://www.awwwards.com/sites/g-colombel-portfolio-2026",
+    "ok": true,
+    "height": 10956,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-vredestein-experience",
+    "url": "https://www.awwwards.com/sites/vredestein-experience-centre",
+    "ok": true,
+    "height": 11668,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-hearst-exhibit-2026",
+    "url": "https://www.awwwards.com/sites/hearst-exhibit-2026",
+    "ok": true,
+    "height": 8639,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-elektra-virtual-museum",
+    "url": "https://www.awwwards.com/sites/elektra-virtual-museum",
+    "ok": true,
+    "height": 12478,
+    "errs": 0
+  },
+  {
+    "slug": "awwwards-site-my-art-gallery",
+    "url": "https://www.awwwards.com/sites/my-art-gallery-portfolio",
+    "ok": true,
+    "height": 4389,
+    "errs": 0
+  },
+  {
+    "slug": "dam-digital-art-museum",
+    "url": "https://digitalartmuseum.com/en/",
+    "ok": true,
+    "height": 9320,
+    "errs": 0
+  },
+  {
+    "slug": "louvre-online-tours",
+    "url": "https://www.louvre.fr/en/online-tours",
+    "ok": true,
+    "height": 3784,
+    "errs": 0
+  },
+  {
+    "slug": "teamlab-art",
+    "url": "https://www.teamlab.art/",
+    "ok": true,
+    "height": 3780,
+    "errs": 0
+  },
+  {
+    "slug": "minhpham-design",
+    "url": "https://www.minhpham.design/",
+    "ok": true,
+    "height": 9777,
+    "errs": 0
+  },
+  {
+    "slug": "gcolombel",
+    "url": "https://www.gcolombel.com/",
+    "ok": false,
+    "error": "Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://www.gcolombel.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.gcolombel.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  {
+    "slug": "framesixty-virtual-museum",
+    "url": "https://framesixty.com/virtual-museum-tours/",
+    "ok": true,
+    "height": 15410,
+    "errs": 0
+  },
+  {
+    "slug": "hontran-best-2026",
+    "url": "https://www.hontran.dev/blog/best-award-winning-websites-2026",
+    "ok": true,
+    "height": 13465,
+    "errs": 0
+  },
+  {
+    "slug": "utsubo-best-threejs-2026",
+    "url": "https://www.utsubo.com/blog/best-threejs-websites-2026",
+    "ok": true,
+    "height": 19368,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-1-www-facebook-com-awwwards",
+    "url": "https://www.facebook.com/awwwards",
+    "ok": true,
+    "height": 900,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-2-www-instagram-com-awwwards",
+    "url": "https://www.instagram.com/awwwards",
+    "ok": true,
+    "height": 900,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-3-twitter-com-awwwards",
+    "url": "https://twitter.com/awwwards",
+    "ok": true,
+    "height": 900,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-4-www-youtube-com-awwwardstv",
+    "url": "https://www.youtube.com/awwwardstv",
+    "ok": true,
+    "height": 912,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-5-www-huxleysaga-com-",
+    "url": "https://www.huxleysaga.com/",
+    "ok": true,
+    "height": 10881,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-6-www-polpharmabiologics-com-",
+    "url": "https://www.polpharmabiologics.com/",
+    "ok": true,
+    "height": 26105,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-7-two26-studio-",
+    "url": "https://two26.studio/",
+    "ok": true,
+    "height": 900,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-8-laboiteaslides-fr-",
+    "url": "https://laboiteaslides.fr/",
+    "ok": true,
+    "height": 36053,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-9-go-streamlinehq-com-pixel-yellow",
+    "url": "https://go.streamlinehq.com/pixel-yellow",
+    "ok": true,
+    "height": 2804,
+    "errs": 0
+  },
+  {
+    "slug": "sotd-live-10-artemiilebedev-com-",
+    "url": "https://artemiilebedev.com/",
+    "ok": true,
+    "height": 900,
+    "errs": 0
+  }
+]

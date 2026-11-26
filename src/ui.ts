@@ -83,9 +83,18 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('panel-next').addEventListener('click', cb.onNext);
   $('panel-zoom').addEventListener('click', cb.onZoom);
   ($('panel-img') as HTMLImageElement).addEventListener('click', cb.onZoom);
-  $('lb-close').addEventListener('click', () => lightbox.classList.add('hidden'));
-  $('lb-prev').addEventListener('click', cb.onPrev);
-  $('lb-next').addEventListener('click', cb.onNext);
+  $('lb-close').addEventListener('click', (e) => {
+    e.stopPropagation();
+    lightbox.classList.add('hidden');
+  });
+  $('lb-prev').addEventListener('click', (e) => {
+    e.stopPropagation();
+    cb.onPrev();
+  });
+  $('lb-next').addEventListener('click', (e) => {
+    e.stopPropagation();
+    cb.onNext();
+  });
   lightbox.addEventListener('click', () => lightbox.classList.add('hidden'));
   $('end-restart').addEventListener('click', cb.onEndRestart);
   $('end-index').addEventListener('click', cb.onEndIndex);

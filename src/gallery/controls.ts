@@ -140,6 +140,8 @@ export class GalleryControls {
       if (this.reduced) this.t = this.targetT;
       else this.t += (this.targetT - this.t) * Math.min(1, dt * 7.5);
       this.curve.getPointAt(clamp(this.t, 0, 1), this.pos);
+      // défense en profondeur : jamais derrière le mur du fond
+      this.pos.z = Math.max(this.pos.z, this.layout.zEnd + 1);
       this.camera.position.copy(this.pos);
       const k = this.reduced ? 1 : Math.min(1, dt * 3);
       this.lookVec.lerp(this.lookTarget(), k);

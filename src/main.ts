@@ -1,10 +1,17 @@
 import * as THREE from 'three';
+
 import type { GalleryData } from './types';
+
 import { computeLayout, Z_START, type PlacedWork } from './gallery/layout';
+
 import { createScene } from './gallery/scene';
-import { buildPaintings, ensureTexture, setHovered } from './gallery/paintings';
+
+import { buildPaintings, ensureTexture, releaseTexture, setHovered } from './gallery/paintings';
+
 import { GalleryControls } from './gallery/controls';
+
 import { Minimap } from './gallery/minimap';
+
 import { initUI, type IndexGroup } from './ui';
 
 async function boot(): Promise<void> {
@@ -62,8 +69,9 @@ async function boot(): Promise<void> {
   const layout = computeLayout(data, viewDist);
   const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
   const shadows = !coarse;
-  const { renderer, scene, camera, spot } = createScene(canvas, layout, pixelRatio, { shadows });
+  const { renderer, scene, camera, sun, spotPool } = createScene(canvas, layout, pixelRatio, { shadows, coarse });
   const entries = buildPaintings(scene, layout, shadows);
+  const texAniso = touch ? 4 : 8;
 
   const spacer = document.getElementById('scroll-spacer') as HTMLDivElement;
   spacer.style.height = `${Math.round((data.works.length * 1.15 + 1.8) * 100)}vh`;
@@ -75,10 +83,12 @@ async function boot(): Promise<void> {
   const minimap = new Minimap(document.getElementById('minimap') as HTMLElement, layout);
 
   let panelWork: PlacedWork | null = null;
+  let panelTravelUntil = 0; // F1 : le panneau reste ouvert pendant le trajet caméra programmatique
   let loaded = 0;
   let entered = false;
   let toastDismissed = false;
-  const total = entries.length;
+  const nearEntries = entries.filter((e) => Math.abs(e.placed.z - Z_START) < 16);
+  const total = Math.max(1, nearEntries.length);
 
   const clampIdx = (i: number): number => Math.min(Math.max(i, 0), layout.placed.length - 1);
 
@@ -114,6 +124,7 @@ async function boot(): Promise<void> {
       if (navTarget === targetIdx) navTarget = null;
     }, 1600);
     const target = ps[targetIdx];
+
     if (ui.panelIsOpen()) focusWork(target);
     else if (controls.mode === 'free') controls.focusOn(target);
     else controls.scrollToWork(target);
@@ -129,6 +140,11 @@ async function boot(): Promise<void> {
 
   function focusWork(p: PlacedWork): void {
     panelWork = p;
+    if (controls.mode === 'guided' && Math.abs(controls.currentZ() - p.z) > 3.2) {
+      panelTravelUntil = performance.now() + 5000; // le panneau reste ouvert pendant le trajet
+    } else {
+      panelTravelUntil = 0;
+    }
     ui.openPanel(p);
     if (controls.mode === 'guided') controls.scrollToWork(p);
     else controls.focusOn(p);
@@ -194,6 +210,8 @@ async function boot(): Promise<void> {
   }
 
   controls.onPick = (p) => focusWork(p);
+  controls.onNext = () => nav(1);
+  controls.onPrev = () => nav(-1);
   minimap.onPick = (p) => focusWork(p);
 
   controls.onEscape = () => {
@@ -251,10 +269,12 @@ async function boot(): Promise<void> {
   let mouseNdc: THREE.Vector2 | null = null;
   let hoverDirty = false;
   let hoverId: string | null = null;
+  let pointerSeen = false;
   const cursor = document.getElementById('cursor');
   const cursorPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const cursorTarget = { x: cursorPos.x, y: cursorPos.y };
   window.addEventListener('pointermove', (e) => {
+    pointerSeen = true;
     cursorTarget.x = e.clientX;
     cursorTarget.y = e.clientY;
     if (!fine) return;
@@ -269,12 +289,13 @@ async function boot(): Promise<void> {
     if (cursor) cursor.style.opacity = '0';
   });
 
-  entries.forEach((e) =>
-    ensureTexture(e, base, () => {
+  // Chargement initial : uniquement le voisinage de l'entrée (le tick charge le reste en lazy)
+  for (const e of nearEntries) {
+    ensureTexture(e, base, texAniso, () => {
       loaded++;
       ui.setLoader(loaded / total, loaded >= total);
-    }),
-  );
+    });
+  }
 
   function resize(): void {
     const w = window.innerWidth;
@@ -284,6 +305,7 @@ async function boot(): Promise<void> {
     camera.aspect = aspect;
     camera.fov = aspect < 1 ? Math.min(74, 62 / Math.sqrt(aspect)) : 58;
     camera.updateProjectionMatrix();
+    minimap.relayout();
   }
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
@@ -298,7 +320,9 @@ async function boot(): Promise<void> {
     controls.update(dt);
     const camZ = controls.currentZ();
     for (const e of entries) {
-      if (Math.abs(e.placed.z - camZ) < 16) ensureTexture(e, base);
+      const dz = Math.abs(e.placed.z - camZ);
+      if (dz < 16) ensureTexture(e, base, texAniso);
+      else if (dz > 30) releaseTexture(e); // LRU : libère la mémoire GPU au-delà de 30 m
     }
     if (hoverDirty && mouseNdc && entered) {
       hoverDirty = false;
@@ -312,11 +336,37 @@ async function boot(): Promise<void> {
       cursorPos.x += (cursorTarget.x - cursorPos.x) * Math.min(1, dt * 12);
       cursorPos.y += (cursorTarget.y - cursorPos.y) * Math.min(1, dt * 12);
       cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
-      cursor.style.opacity = '1';
+      cursor.style.opacity = pointerSeen ? '1' : '0';
       cursor.classList.toggle('big', hoverId !== null);
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
+
+    // Pool de spots « tableau » : les plus proches de la caméra allument leur œuvre
+    const near = [...entries].sort((a, b) => Math.abs(a.placed.z - camZ) - Math.abs(b.placed.z - camZ));
+    spotPool.forEach((s, i) => {
+      const p = near[i]?.placed;
+      if (!p) {
+        s.intensity = 0;
+        return;
+      }
+      s.position.set(p.x - 0.35, p.y + p.h / 2 + 1.25, p.z + 0.55);
+      s.target.position.set(p.x, p.y - 0.05, p.z);
+      s.target.updateMatrixWorld();
+      s.intensity = 15;
+      s.castShadow = shadows && i < 2; // ombre uniquement sur les 2 plus proches (desktop)
+    });
+
+    // fenêtre d'ombre du soleil follows the camera (évite les texels géants en hall long)
+    if (shadows) {
+      sun.shadow.camera.top = camZ + 16;
+      sun.shadow.camera.bottom = camZ - 16;
+      sun.shadow.camera.left = -10;
+      sun.shadow.camera.right = 10;
+      sun.shadow.camera.updateProjectionMatrix();
+      sun.target.position.set(0, 0, camZ);
+    }
+
     const bc = document.getElementById('big-counter');
     if (bc && cur) {
       const near = Math.abs(camZ - cur.z) < 3;
@@ -329,13 +379,11 @@ async function boot(): Promise<void> {
     if (cur) {
       ui.setProgress(idx + 1, layout.placed.length, cur.roomName);
       ui.setActiveDot(idx);
-      spot.target = entries[idx].group;
-      spot.position.set(cur.x - 0.9, 3.15, cur.z);
     }
     const t = progressT(camZ);
     ui.setProgressBar(t);
-    if (entered && controls.mode === 'guided') {
-      const showEndNow = t > 0.985;
+    const showEndNow = controls.mode === 'guided' ? t > 0.985 : camZ <= layout.zEnd + 1.2;
+    if (entered) {
       if (showEndNow && ui.panelIsOpen()) {
         ui.closePanel();
         panelWork = null;
@@ -347,17 +395,31 @@ async function boot(): Promise<void> {
       lastRoom = zone.name;
       ui.flashRoom(zone.name);
     }
-    if (ui.panelIsOpen() && panelWork && controls.mode === 'guided' && Math.abs(camZ - panelWork.z) > 3.2) {
+    // auto-fermeture du panneau seulement quand la caméra est arrivée (ou après le trajet)
+    if (
+      ui.panelIsOpen() &&
+      panelWork &&
+      controls.mode === 'guided' &&
+      Math.abs(camZ - panelWork.z) > 3.2 &&
+      performance.now() > panelTravelUntil
+    ) {
       ui.closePanel();
       panelWork = null;
     }
+    if (panelWork && Math.abs(camZ - panelWork.z) <= 3.2) panelTravelUntil = 0;
     minimap.update(camZ, cur?.work.id ?? null);
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
   tick();
 
-  (window as unknown as { __gallery: unknown }).__gallery = { renderer, scene, layout, controls };
+  (window as unknown as { __gallery: unknown }).__gallery = {
+    renderer,
+    scene,
+    layout,
+    controls,
+    perf: () => ({ render: { ...renderer.info.render }, memory: { ...renderer.info.memory } }),
+  };
 }
 
 boot();

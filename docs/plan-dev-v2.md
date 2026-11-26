@@ -165,3 +165,60 @@ cibles tactiles ≥ 24 px (idéal 38+).
 - Assets HD : sans les vraies photos originales dans `references/`, le site restera
   limité par les extraits 1080 px — **bloqueur externe** pour l'objectif "très haute
   définition".
+
+---
+
+## 6. Ajouts du 2026-11-26 (demande utilisateur — mode local, sous-agents critiques)
+
+### Veille round 2 — Awwwards & galeries virtuelles 2026 ✅ (livrée : `docs/inspiration/screenshots/round2/`)
+- Nouvelles recherches web (SOTD 2026, collections Three.js/WebGL/scrolling, musées en ligne
+  — Louvre online tours, DAM Berlin, teamLab, Vredestein Experience Centre, Elektra Virtual
+  Museum, portfolios Minh Pham / G. Colombel 2026, « My Art Gallery », « The State of the
+  Gallery ») + **captures headless réelles 1440×900 (hero + 2 scrolls)** par site, plus les
+  vrais sites externes linkés depuis le mur SOTD du jour (`sotd-live-*`, liens dans
+  `sotd-external-links.json`, rapport dans `report.json`).
+- À lire avec round 1 (`docs/inspiration/screenshots/`) : sélectionner les patterns à
+  reprendre pour la **salle virtuelle** (matériaux, lumière, transitions).
+
+### Étape S — Salle virtuelle « 4K » : textures & lumières ✅ (livrée : revue-10, validée PERFECT par les 3 agents critiques en passe 3)
+Objectif : une **vraie visite virtuelle**, pas un décor procédural basique.
+
+- **Textures procédurales haute résolution** : passer les canvas de 512/1024 px à **2048 voire 4096 px** (sol parquet chêne : lames avec variation de teinte, joints, veines, micro-rayures, reflet verni ; murs plâtre : grain fin + grandes marbrures douces ; plafond : enduit + structure du puits de lumière ; plinthes/moulures/cimaise avec profil réel en relief).
+- **Puits de lumière** : remplacer le grand panneau blanc uni par une verrière structurée (châssis métallique + vitres émissives segmentées) qui projette une lumière crédible.
+- **Luminaires au-dessus de chaque tableau** : remplacer la « barre flottante » actuelle par un **vrai appareil** (boîtier slim métal sombre + lentille émissive) + un **SpotLight réel par œuvre** (cône chaud, pénombre douce, portée limitée) ; le spot « suiveur » global reste en appoint. Ombres portées sur desktop uniquement, activées seulement pour les 2–3 spots les plus proches de la caméra (perf).
+- **Détails de musée** : cimaises hautes, moulures de plafond, banc avec ombres, portails de salles avec plaque laiton, tapis sobre, reflets au sol (clearcoat) — cohérents avec `docs/style-guide.md`.
+- **Validation** : screenshots headless desktop 1440×900 à plusieurs t (0 / 0.45 / 0.9 / 1) + mobile 390×844, 0 erreur console, draw calls et fps mesurés (`__gallery.renderer.info`), textures `anisotropy` = max du renderer, `SRGBColorSpace` partout.
+
+### Étape M2 — Minimap v3 + tests « derrière le mur » ✅ (livrée : revue-10, validée PERFECT passe 3)
+
+- **Minimap robuste en grand nombre d'œuvres** (`?dup=N`) : stops qui ne se chevauchent plus (taille/numéros adaptatifs : au-delà d'un seuil, pastilles sans numéro + tooltip), **segments de salles** colorés sur la piste, **marqueur de position caméra** (curseur distinct des stops), limites du hall visibles (début/fin), remplissage de progression lisible.
+- **Tests de franchissement du mur** : avec `?dup=2, 3, 5, 8` (10/15/25/40 œuvres) vérifier en guidé et en libre que la caméra **ne traverse jamais le mur du fond** (`z >= zEnd + marge`), que l'écran de fin s'affiche bien à t≈1, que la minimap reste lisible et cliquable, et que le scroll-spacer est proportionnel.
+- **Validation** : mesures DOM (chevauchements, tailles de stops) à 1440×900, 390×844, 360×740 pour chaque `?dup` ; 0 erreur console ; screenshots archivés dans `.vibe/shots-*` (gitignoré).
+
+### Audit Q — passe 2+ formalisée (check de CHAQUE élément, à chaque livraison) ✅ passe 2+3 faites (revue-10 : 3 agents critiques, VERDICT PERFECT ×3)
+Grille à rejouer à chaque commit, 3 tailles d'écran (1440×900, 390×844, 360×740), documentée dans la revue :
+
+| Élément | Critères |
+|---|---|
+| intro | wordmark centré, capitales espacées, loader lisible, bouton état, 0 chevauchement |
+| brand | position, taille, contraste, pas de collision avec bannière/comptoir |
+| minimap | lisible à N œuvres, stops cliquables ≥ 24 px, segments salles, marqueur caméra, 0 chevauchement |
+| HUD bas | mono-ligne, cibles ≥ 24 px (44 idéal), état idle cohérent |
+| dots | masqués mobile, pas de chevauchement avec hint |
+| compteur géant | visible au focus uniquement, position fixe, pas de collision |
+| bannière salle | fondu, tempo, masquée mobile |
+| toast | zone sans conflit, auto-dismiss |
+| panneau œuvre | placement, hiérarchie typo, image zoom transition, actions atteignables |
+| index | grille propre, cartes lisibles, fermeture OK |
+| lightbox | image centrée, nav, zoom, fermeture, swipe |
+| écran de fin | miniature, serif, boutons, HUD toujours cliquable |
+| mode libre | hint discret, retour guidé, caméra clampée (jamais dans/derrière un mur) |
+| scène 3D | textures nettes (pas de pixelisation), luminaires visibles au-dessus des tableaux, ombres cohérentes, fog propre, fin du hall propre (mur du fond visible, pas de trou noir) |
+
+**Règle anti « slop »** : aucun élément ne doit flotter sans raison, aucun dégradé tape-à-l'œil, une seule famille d'accent, typo serif/sans stricte (`docs/style-guide.md`), espacements réguliers, cibles tactiles grandes, **0 chevauchement mesuré en DOM**, 0 erreur console. Toute régression trouvée → corrigée avant livraison.
+
+### Sous-agents critiques (mode local)
+- 3 agents critiques lancés en parallèle à chaque itération majeure :
+  **design/UI** (style.css, ui.ts, index.html, screenshots vs inspiration), **scène 3D/minimap** (scene.ts, paintings.ts, layout.ts, controls.ts, minimap.ts), **tests fonctionnels** (shotkit headless, ?dup, mesures DOM, console).
+- Chacun produit un rapport de critique **actionnable** dans `.vibe/critiques/`.
+- **Bloquant** : la nouvelle version n'est livrée (commit « release ») que quand les 3 agents valident à l'unanimité, sur 2 passes consécutives, que chaque élément est « parfait » (placement exact, design conforme, pas de slop).

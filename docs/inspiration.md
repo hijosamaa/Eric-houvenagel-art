@@ -59,3 +59,28 @@ collections WebGL / transitions / portfolios, sites de peintres et de galeries) 
 6. Autre : quelque chose dans les 33 screenshots qui te plaît et que je n'ai pas listé ?
 
 Réponds par numéros (ex: « 1 oui, 2 oui barre en haut, 5 oui… ») et j'implémente.
+
+---
+
+## Round 2 — 2026-11-26 (veille Awwwards & galeries virtuelles 2026, captures réelles)
+
+Recherche web + **captures headless 1440×900 (hero + 2 scrolls)** dans
+[`inspiration/screenshots/round2/`](inspiration/screenshots/round2/) — rapport dans
+`round2/report.json` (+ `report-v2.json`, liens externes scrapés dans
+`sotd-external-links.json` / `-v2.json`).
+
+| Captures | Source | Ce que ça montre |
+|---|---|---|
+| `awwwards-sotd-wall-*`, `awwwards-collection-{threejs,webgl,virtual-gallery}-*`, `awwwards-category-gallery-*`, `awwwards-scrolling-*` | awwwards.com (mur SOTD, collections Three.js/WebGL, catégorie gallery, scrolling) | Tendances 2026 : 61 % des SOTD Q1 2026 sont des expériences 3D immersives ; le scroll reste le moteur de narration ; compteurs/progression discrets |
+| `sotd-live-5…10-*` | Vrais sites SOTD du jour scrapés depuis le mur (huxleysaga.com, polpharmabiologics.com, two26.studio, laboiteaslides.fr, go.streamlinehq.com/pixel-yellow, artemiilebedev.com) | Patterns concrets : wordmark géant centré sur fond uni (two26), split-screen éditorial image/texte avec micro-labels capitales (Huxley « CHARACTERS / MAX »), nav top minimaliste |
+| `awwwards-site-{state-of-the-gallery,minh-pham,g-colombel-2026,vredestein-experience,hearst-exhibit-2026,elektra-virtual-museum,my-art-gallery}-*` | Pages profils Awwwards (SOTD 2026) | Galeries/musées 3D primés : Vredestein Experience Centre (musée 3D en ligne), Elektra Virtual Museum, My Art Gallery (portfolio Three.js+GSAP), portfolios 2026 Minh Pham / G. Colombel |
+| `dam-digital-art-museum-*`, `teamlab-art-*`, `louvre-online-tours-*`, `framesixty-virtual-museum-*` | DAM Berlin, teamLab, Louvre « Louvre at home », Framesixty | Musées en ligne : hero plein écran + entrée « Launch virtual tour », gros titres serif/sans contrastés |
+| `hontran-best-2026-*`, `utsubo-best-threejs-2026-*` | Blogs jurés Awwwards 2026 | « La 3D sert l'atmosphère et le cadrage, pas le spectacle » ; digital twin du pavillon Cartier W&W 2026 (Immersive Garden) : 6 alcôves 3D scrollées comme des salles de musée — **le plus proche de notre cas** |
+
+### Constats round 2 (à croiser avec round 1)
+
+- **Une seule idée forte** par écran, le reste s'efface (wordmark géant centré sur fond uni, zéro chrome — two26 ; logo centré + un seul hint — Cartier).
+- **Split éditorial image/texte** avec micro-labels en capitales espacées et filets fins (Huxley) — directement applicable à notre fiche œuvre et à l'index.
+- **Compteur / progression discrets** intégrés à la navigation, jamais en overlay criard.
+- **Le scroll = les salles** : alcôves 3D qui se succèdent (Cartier W&W 2026) — notre mur unique + caméra en ligne droite est exactement ce pattern, à pousser plus loin côté **matériaux et lumière** (voir étape S du plan).
+- Les musées en ligne (Louvre, DAM) ouvrent sur un **hero plein écran + CTA unique « lancer la visite »** — pattern de notre intro, à garder.

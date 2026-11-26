@@ -1,0 +1,73 @@
+[
+  {
+    "slug": "r2-www-huxleysaga-com-",
+    "url": "https://www.huxleysaga.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-www-polpharmabiologics-com-",
+    "url": "https://www.polpharmabiologics.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-two26-studio-",
+    "url": "https://two26.studio/",
+    "ok": true
+  },
+  {
+    "slug": "r2-laboiteaslides-fr-",
+    "url": "https://laboiteaslides.fr/",
+    "ok": true
+  },
+  {
+    "slug": "r2-go-streamlinehq-com-pixel-yellow",
+    "url": "https://go.streamlinehq.com/pixel-yellow",
+    "ok": true
+  },
+  {
+    "slug": "r2-artemiilebedev-com-",
+    "url": "https://artemiilebedev.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-www-threejspunk-com-",
+    "url": "https://www.threejspunk.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-www-197historiasilustradas-com-",
+    "url": "https://www.197historiasilustradas.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-carterogunsola-com-",
+    "url": "https://carterogunsola.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-productionportugal-com-",
+    "url": "https://productionportugal.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-sweet-tape-com-",
+    "url": "https://sweet-tape.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-www-wearebulletproof-com-",
+    "url": "https://www.wearebulletproof.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-santalarch-com-",
+    "url": "https://santalarch.com/",
+    "ok": true
+  },
+  {
+    "slug": "r2-preymaker-com-",
+    "url": "https://preymaker.com/",
+    "ok": false,
+    "error": "TimeoutError: page.screenshot: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - taking page screenshot\u001b[22m\n\u001b[2m  - waiting for fonts to load...\u001b[22m\n\u001b[2m "
+  }
+]

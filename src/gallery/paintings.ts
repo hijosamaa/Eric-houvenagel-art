@@ -1,11 +1,14 @@
 import * as THREE from 'three';
+
 import type { Layout, PlacedWork } from './layout';
+
 import type { Work } from '../types';
 
 export interface PaintingEntry {
   placed: PlacedWork;
   group: THREE.Group;
   imageMesh: THREE.Mesh;
+  tex: THREE.Texture | null;
   loaded: boolean;
   loadStarted: boolean;
 }
@@ -15,7 +18,7 @@ let hoveredId: string | null = null;
 function applyHover(e: PaintingEntry): void {
   const mat = e.imageMesh.material as THREE.MeshStandardMaterial;
   const active = e.placed.work.id === hoveredId;
-  mat.emissiveIntensity = active && e.loaded ? 0.55 : 0.25;
+  mat.emissiveIntensity = active && e.loaded ? 0.3 : e.loaded ? 0.1 : 0;
   e.group.scale.setScalar(active ? 1.02 : 1);
 }
 
@@ -28,34 +31,64 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-function labelTexture(work: Work): THREE.CanvasTexture {
+// ---------- Atlas de cartels : 1 seule texture 2048×2048 pour toutes les œuvres ----------
+const ATLAS_SIZE = 2048;
+const ATLAS_COLS = 8;
+const ATLAS_CELL = ATLAS_SIZE / ATLAS_COLS; // 256
+
+function drawLabel(g: CanvasRenderingContext2D, work: Work, x: number, y: number, s: number): void {
+  g.fillStyle = '#ffffff';
+  g.fillRect(x, y, s, s);
+  g.strokeStyle = '#d8d2c4';
+  g.lineWidth = 3;
+  g.strokeRect(x + 4, y + 4, s - 8, s - 8);
+  g.fillStyle = '#20242a';
+  g.font = `600 ${Math.round(s * 0.095)}px Georgia, serif`;
+  g.textAlign = 'left';
+  g.textBaseline = 'alphabetic';
+  g.fillText(truncate(work.title, 20), x + s * 0.067, y + s * 0.36, s * 0.86);
+  g.fillStyle = '#6f6a60';
+  g.font = `${Math.round(s * 0.067)}px Inter, system-ui, sans-serif`;
+  const line2 = [work.year > 0 ? String(work.year) : null, work.medium].filter(Boolean).join(', ');
+  g.fillText(truncate(line2, 34), x + s * 0.067, y + s * 0.56, s * 0.86);
+  if (work.dimensions) {
+    g.fillText(truncate(work.dimensions, 34), x + s * 0.067, y + s * 0.72, s * 0.86);
+  }
+}
+
+function buildLabelAtlas(works: Work[]): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 360;
-  c.height = 220;
+  c.width = c.height = ATLAS_SIZE;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
   g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 360, 220);
-  g.strokeStyle = '#d8d2c4';
-  g.lineWidth = 3;
-  g.strokeRect(4, 4, 352, 212);
-  g.fillStyle = '#20242a';
-  g.font = '600 34px Georgia, serif';
-  g.textAlign = 'left';
-  g.textBaseline = 'alphabetic';
-  g.fillText(truncate(work.title, 20), 24, 78, 312);
-  g.fillStyle = '#6f6a60';
-  g.font = '24px Inter, system-ui, sans-serif';
-  const line2 = [work.year > 0 ? String(work.year) : null, work.medium].filter(Boolean).join(', ');
-  g.fillText(truncate(line2, 34), 24, 122, 312);
-  if (work.dimensions) {
-    g.fillText(truncate(work.dimensions, 34), 24, 158, 312);
-  }
+  g.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  works.forEach((w, i) => {
+    const col = i % ATLAS_COLS;
+    const row = Math.floor(i / ATLAS_COLS);
+    drawLabel(g, w, col * ATLAS_CELL, row * ATLAS_CELL, ATLAS_CELL);
+  });
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   return t;
 }
+
+function labelGeometry(index: number, w: number, h: number): THREE.PlaneGeometry {
+  const geo = new THREE.PlaneGeometry(w, h);
+  const col = index % ATLAS_COLS;
+  const row = Math.floor(index / ATLAS_COLS);
+  const u0 = col / ATLAS_COLS;
+  const v0 = 1 - (row + 1) / ATLAS_COLS; // flipY : la rangée 0 est en haut du canvas
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, u0 + uv.getX(i) / ATLAS_COLS, v0 + uv.getY(i) / ATLAS_COLS);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+// -----------------------------------------------------------------------------
 
 export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: boolean): PaintingEntry[] {
   const frameMat = new THREE.MeshPhysicalMaterial({
@@ -66,7 +99,8 @@ export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: bool
     envMapIntensity: 0.8,
   });
   const matBoardMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, envMapIntensity: 0.3 });
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xffedd0 });
+  const housingMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.35, metalness: 0.65, envMapIntensity: 0.6 });
+  const lensMat = new THREE.MeshBasicMaterial({ color: 0xfff3dd });
   const shadowMat = new THREE.MeshBasicMaterial({
     color: 0x1a1a1a,
     transparent: true,
@@ -76,7 +110,10 @@ export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: bool
     polygonOffsetFactor: -1,
   });
 
-  return layout.placed.map((p) => {
+  const atlas = buildLabelAtlas(layout.placed.map((p) => p.work));
+  const labelMat = new THREE.MeshBasicMaterial({ map: atlas });
+
+  return layout.placed.map((p, i) => {
     const group = new THREE.Group();
     group.position.set(p.x, p.y, p.z);
     group.rotation.y = -Math.PI / 2;
@@ -89,36 +126,63 @@ export function buildPaintings(scene: THREE.Scene, layout: Layout, shadows: bool
     const imageMesh = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), imgMat);
     imageMesh.position.z = 0.055;
     imageMesh.userData.workId = p.work.id;
-    const lightBar = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.24, 0.06, 0.06), lightMat);
-    lightBar.position.set(0, p.h / 2 + 0.14, 0.14);
+
+    // Vrai appareil d'éclairage de tableau (picture light) : bras + boîtier métal + lentille émissive
+    const fy = p.h / 2 + 0.13;
+    // bras qui traversent le mur (local z négatif = dans le mur) jusqu'au boîtier
+    const armGeo = new THREE.BoxGeometry(0.025, 0.17, 0.14);
+    const armL = new THREE.Mesh(armGeo, housingMat);
+    armL.position.set(-(p.w / 2 + 0.1), fy, 0.015);
+    const armR = new THREE.Mesh(armGeo, housingMat);
+    armR.position.set(p.w / 2 + 0.1, fy, 0.015);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(p.w + 0.28, 0.07, 0.075), housingMat);
+    housing.position.set(0, fy, 0.115);
+    housing.castShadow = shadows;
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.2, 0.028), lensMat);
+    lens.position.set(0, fy, 0.154);
+
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(p.w + 0.24, p.h + 0.24), shadowMat);
     shadow.position.set(0.012, -0.02, -0.042);
-    const label = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.26, 0.16),
-      new THREE.MeshBasicMaterial({ map: labelTexture(p.work) }),
-    );
-    label.position.set((p.w + 0.16) / 2 + 0.17, -0.04, 0.06);
 
-    group.add(frame, matBoard, imageMesh, lightBar, shadow, label);
+    // Cartel musée : collé au cadre, hauteur ~1,05 m
+    const label = new THREE.Mesh(labelGeometry(i, 0.22, 0.135), labelMat);
+    label.position.set((p.w + 0.16) / 2 + 0.1, -p.h / 2 + 0.3, 0.06);
+
+    group.add(frame, matBoard, imageMesh, armL, armR, housing, lens, shadow, label);
     scene.add(group);
-    return { placed: p, group, imageMesh, loaded: false, loadStarted: false };
+    return { placed: p, group, imageMesh, tex: null, loaded: false, loadStarted: false };
   });
 }
 
-export function ensureTexture(entry: PaintingEntry, baseUrl: string, onLoad?: () => void): void {
+export function ensureTexture(entry: PaintingEntry, baseUrl: string, aniso: number, onLoad?: () => void): void {
   if (entry.loadStarted) return;
   entry.loadStarted = true;
   new THREE.TextureLoader().load(baseUrl + entry.placed.work.image, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
+    tex.anisotropy = aniso;
     const mat = entry.imageMesh.material as THREE.MeshStandardMaterial;
     mat.map = tex;
     mat.emissiveMap = tex;
     mat.emissive = new THREE.Color(0xffffff);
     mat.color.set(0xffffff);
     mat.needsUpdate = true;
+    entry.tex = tex;
     entry.loaded = true;
     applyHover(entry);
     onLoad?.();
   });
+}
+
+/** Libère la texture GPU d'une œuvre trop éloignée (LRU) — rechargeable via ensureTexture. */
+export function releaseTexture(entry: PaintingEntry): void {
+  if (!entry.loaded) return;
+  entry.tex?.dispose();
+  entry.tex = null;
+  const mat = entry.imageMesh.material as THREE.MeshStandardMaterial;
+  mat.map = null;
+  mat.emissiveMap = null;
+  mat.color.set(0xe3ded6);
+  mat.needsUpdate = true;
+  entry.loaded = false;
+  entry.loadStarted = false;
 }
