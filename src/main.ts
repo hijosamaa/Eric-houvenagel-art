@@ -25,6 +25,15 @@ async function boot(): Promise<void> {
 
   const res = await fetch(`${base}data/works.json`);
   const data = (await res.json()) as GalleryData;
+  const dupParam = Number(new URLSearchParams(location.search).get('dup') || '0');
+  if (dupParam > 1 && data.works.length > 0) {
+    const baseWorks = [...data.works];
+    for (let k = 2; k <= dupParam; k++) {
+      for (const w of baseWorks) {
+        data.works.push({ ...w, id: `${w.id}-${k}`, order: w.order + (k - 1) * 100 });
+      }
+    }
+  }
   const brandName = document.getElementById('brand-name');
   if (brandName) brandName.textContent = data.artist;
   const introName = document.getElementById('intro-name');
@@ -81,18 +90,38 @@ async function boot(): Promise<void> {
     return Math.min(passed, ps.length - 1);
   }
 
+  let navTarget: number | null = null;
   function step(dir: 1 | -1): void {
-    const idx = clampIdx(currentIndex(controls.currentZ()) + dir);
-    focusWork(layout.placed[idx]);
+    const ps = layout.placed;
+    const idx = navTarget ?? currentIndex(controls.currentZ());
+    if (dir === 1 && idx >= ps.length - 1) {
+      navTarget = null;
+      if (ui.panelIsOpen()) {
+        ui.closePanel();
+        panelWork = null;
+      }
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: controls.reduced ? 'auto' : 'smooth' });
+      return;
+    }
+    if (dir === -1 && idx <= 0) {
+      navTarget = null;
+      window.scrollTo({ top: 0, behavior: controls.reduced ? 'auto' : 'smooth' });
+      return;
+    }
+    const targetIdx = clampIdx(idx + dir);
+    navTarget = targetIdx;
+    setTimeout(() => {
+      if (navTarget === targetIdx) navTarget = null;
+    }, 1600);
+    const target = ps[targetIdx];
+    if (ui.panelIsOpen()) focusWork(target);
+    else if (controls.mode === 'free') controls.focusOn(target);
+    else controls.scrollToWork(target);
   }
 
   function nav(dir: 1 | -1): void {
     if (ui.lightboxIsOpen()) {
-      const w = ui.lbNav(dir);
-      if (w) {
-        panelWork = w;
-        ui.openPanel(w);
-      }
+      ui.lbNav(dir);
       return;
     }
     step(dir);

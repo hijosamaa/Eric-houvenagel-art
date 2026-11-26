@@ -32,7 +32,7 @@ export class Minimap {
       b.textContent = String(i + 1);
       b.title = p.work.title;
       b.setAttribute('aria-label', `Œuvre ${i + 1} : ${p.work.title}`);
-      b.style.top = `${((zMax - p.z) / span) * 100}%`;
+      b.style.setProperty('--p', `${((zMax - p.z) / span) * 100}%`);
       b.addEventListener('click', () => this.onPick?.(p));
       this.track.appendChild(b);
       this.stops.set(p.work.id, b);
@@ -46,7 +46,7 @@ export class Minimap {
   update(camZ: number, currentId: string | null): void {
     const { zMin, zMax } = hallBounds(this.layout);
     const t = Math.min(1, Math.max(0, (zMax - camZ) / (zMax - zMin)));
-    this.fill.style.height = `${t * 100}%`;
+    this.track.style.setProperty('--fill', `${t * 100}%`);
     for (const [id, el] of this.stops) {
       el.classList.toggle('active', id === currentId);
     }

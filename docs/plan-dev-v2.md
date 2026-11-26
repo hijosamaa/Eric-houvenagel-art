@@ -64,6 +64,40 @@ cibles tactiles ≥ 24 px (idéal 38+).
   aquarelle. Choisir, documenter dans `docs/style-guide.md`.
 - Ajuster la palette si le A/B le justifie (fond, accent, contraste texte).
 
+### Étape intermédiaire R — Veille & sélection d'inspiration ✅ (livrée : `docs/inspiration.md`)
+- Recherches web (Awwwards SOTD 2025–2026, collections WebGL/transitions/portfolios,
+  sites de peintres/galeries) + **33 captures d'écran réelles** des sites retenus dans
+  `docs/inspiration/screenshots/` (Cartier W&W 2025, Lusion, White Cube, bruno-simon,
+  Dennis Snellenberg, makemepulse, David Hockney, Tate, Pentagram, collections Awwwards).
+- Sélection critique de 8 éléments proposés à reprendre (intro wordmark centré, HUD
+  discret + barre de progression fine en haut, compteur géant au focus, bloc « œuvre
+  suivante », curseur « Voir », méta en ligne unique, transition panneau, hint mode
+  libre) → **l'utilisateur choisit par numéros, puis on implémente** (itération R2).
+
+### Itération N — Navigation & animations ✅ (corrigée, commit revue-8)
+- Bugs constatés : suivant/précédent ouvrait la fiche à chaque clic ; au dernier tableau
+  le clic ouvrait la fiche au lieu de passer à la fin ; écran de fin bloquait le HUD.
+- Fix : `step()` n'ouvre la fiche que si elle est déjà ouverte (sinon simple déplacement
+  caméra) ; suivant au dernier → écran de fin ; précédent au premier → début ; `navTarget`
+  anti double-clic pendant l'animation ; `#end` en `pointer-events:none` (boutons actifs)
+  pour garder le HUD cliquable ; caméra plus réactive (lerp 6→7.5, regard 2.2→3).
+- **Validation** : test headless `?dup=3` (15 œuvres) — next ×4 → 5/15→8/15 sans ouvrir
+  la fiche, fin atteinte → écran fin, précédent à la fin → retour œuvre 15/15. 0 erreur.
+
+### Itération M — Minimap v2 + tests galerie longue ✅ (commit revue-8)
+- Mobile : minimap déplacée **en bas au centre, horizontale** (au-dessus du HUD), stops
+  via `--p`/`--fill` ; toast remonté en haut (64 px). Mesuré 390×844 : aucun chevauchement
+  minimap/HUD/marque/toast, stops 30 px.
+- Hook de test `?dup=N` (duplique les œuvres N fois) pour tester une galerie longue /
+  multi-salles sans polluer les données : `?dup=3` → 15 œuvres, parcours progressif OK.
+
+### Itération Q — Audit élément par élément (anti « slop ») ⬜ à faire après R2
+- Grille de check par composant (intro, brand, HUD, minimap, panneau, index, lightbox,
+  fin, mode libre, toast) × critères : placement exact, hiérarchie typo, espacement,
+  cohérence palette, pas d'élément qui « flotte », cibles tactiles, 390×844 + 360×740 +
+  1440×900. Chaque défaut trouvé → fix + re-screenshot. Ne pas s'arrêter à la première
+  passe : 2 passes complètes minimum.
+
 ### Itération C — Polish desktop & détails
 - Relire chaque écran desktop (intro, entrée, focus œuvre, panneau, index, lightbox,
   fin, mode libre) capture par capture ; corriger micro-défauts (alignement, ombres,

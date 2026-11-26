@@ -138,10 +138,10 @@ export class GalleryControls {
   update(dt: number): void {
     if (this.mode === 'guided') {
       if (this.reduced) this.t = this.targetT;
-      else this.t += (this.targetT - this.t) * Math.min(1, dt * 6);
+      else this.t += (this.targetT - this.t) * Math.min(1, dt * 7.5);
       this.curve.getPointAt(clamp(this.t, 0, 1), this.pos);
       this.camera.position.copy(this.pos);
-      const k = this.reduced ? 1 : Math.min(1, dt * 2.2);
+      const k = this.reduced ? 1 : Math.min(1, dt * 3);
       this.lookVec.lerp(this.lookTarget(), k);
       this.camera.lookAt(this.lookVec);
     } else {
