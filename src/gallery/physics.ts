@@ -87,9 +87,10 @@ class RapierWorld implements PhysicsWorld {
       fixed((HALL_WIDTH - 0.6) / 2, 0.225, 0.175, 0, HALL_HEIGHT - 0.225, z); // linteau
     }
 
-    // un collider par tableau (mur droit, boîte p.w+0.16 x p.h+0.16 x 0.08)
+    // un collider par tableau (mur droit) : dans le monde, après rotation.y=-π/2 du groupe,
+    // la largeur p.w s'étend selon z et la profondeur 0.08 selon x → hx=0.04, hz=(p.w+0.16)/2
     for (const p of layout.placed) {
-      fixed((p.w + 0.16) / 2, (p.h + 0.16) / 2, 0.04, p.x, p.y, p.z);
+      fixed(0.04, (p.h + 0.16) / 2, (p.w + 0.16) / 2, p.x, p.y, p.z);
     }
 
     // joueur : rigid body kinématique (capsule), rotations verrouillées, y fixé à 1.6
