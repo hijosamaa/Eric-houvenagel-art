@@ -12,7 +12,7 @@ import { GalleryControls } from './gallery/controls';
 
 import { Minimap } from './gallery/minimap';
 
-import { initUI, type IndexGroup, setResponsiveImg, pickUrl, webpSupported } from './ui';
+import { initUI, metaLine, type IndexGroup, setResponsiveImg, pickUrl, webpSupported } from './ui';
 
 async function boot(): Promise<void> {
   const base = import.meta.env.BASE_URL;
@@ -224,8 +224,7 @@ async function boot(): Promise<void> {
         entered = true;
         ui.hideIntro();
         document.getElementById('app')?.classList.add('ready');
-        scrollHint?.classList.add('show');
-        ui.toast("Faites défiler pour avancer · cliquez sur un tableau ou son numéro pour l'observer", 8000);
+        ui.toast('Faites défiler pour avancer. Cliquez sur un tableau pour l’observer.', 8000);
       },
       onClosePanel: () => {
         panelWork = null;
@@ -247,7 +246,6 @@ async function boot(): Promise<void> {
     base,
   );
   ui.setWorks(layout.placed);
-  ui.buildDots(layout.placed.length, (i) => focusWork(layout.placed[i]));
 
   const groups: IndexGroup[] = layout.zones
     .map((z) => ({
@@ -298,22 +296,13 @@ async function boot(): Promise<void> {
     }
   });
 
-  const hudBottom = document.getElementById('hud-bottom');
-  const scrollHint = document.getElementById('scroll-hint');
-  let idleTimer: number | undefined;
   window.addEventListener(
     'scroll',
     () => {
       if (!toastDismissed && window.scrollY > 30) {
         toastDismissed = true;
         ui.hideToast();
-        scrollHint?.classList.remove('show');
       }
-      hudBottom?.classList.remove('idle');
-      window.clearTimeout(idleTimer);
-      idleTimer = window.setTimeout(() => {
-        if (fine && entered) hudBottom?.classList.add('idle');
-      }, 2400);
     },
     { passive: true },
   );
@@ -322,14 +311,7 @@ async function boot(): Promise<void> {
   let hoverDirty = false;
   let hoverId: string | null = null;
   let hitZone = false;
-  let pointerSeen = false;
-  const cursor = document.getElementById('cursor');
-  const cursorPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-  const cursorTarget = { x: cursorPos.x, y: cursorPos.y };
   window.addEventListener('pointermove', (e) => {
-    pointerSeen = true;
-    cursorTarget.x = e.clientX;
-    cursorTarget.y = e.clientY;
     if (!fine) return;
     const rect = canvas.getBoundingClientRect();
     mouseNdc = new THREE.Vector2(
@@ -337,9 +319,6 @@ async function boot(): Promise<void> {
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
     );
     hoverDirty = true;
-  });
-  window.addEventListener('mouseleave', () => {
-    if (cursor) cursor.style.opacity = '0';
   });
 
   // Chargement initial : uniquement le voisinage de l'entrée (le tick charge le reste en lazy)
@@ -365,7 +344,7 @@ async function boot(): Promise<void> {
   resize();
   window.scrollTo(0, 0);
 
-  let lastRoom = '';
+  let captionIdx = -1;
   const clock = new THREE.Clock();
   // Raycaster réutilisé pour le hover (champ unique) + BVH firstHitOnly (boundsTree sur les tableaux)
   const ray = new THREE.Raycaster();
@@ -389,13 +368,6 @@ async function boot(): Promise<void> {
       setHovered(hoverId, entries);
       const clickable = hoverId !== null || hitZone;
       canvas.style.cursor = clickable ? 'pointer' : 'grab';
-    }
-    if (cursor && fine) {
-      cursorPos.x += (cursorTarget.x - cursorPos.x) * Math.min(1, dt * 12);
-      cursorPos.y += (cursorTarget.y - cursorPos.y) * Math.min(1, dt * 12);
-      cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
-      cursor.style.opacity = pointerSeen ? '1' : '0';
-      cursor.classList.toggle('big', hoverId !== null || hitZone);
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
@@ -433,18 +405,9 @@ async function boot(): Promise<void> {
       sun.target.position.set(0, 0, camZ);
     }
 
-    const bc = document.getElementById('big-counter');
-    if (bc && cur) {
-      const near = Math.abs(camZ - cur.z) < 3;
-      bc.classList.toggle('show', entered && near);
-      const bcCur = document.getElementById('bc-cur');
-      const bcTotal = document.getElementById('bc-total');
-      if (bcCur) bcCur.textContent = String(idx + 1).padStart(2, '0');
-      if (bcTotal) bcTotal.textContent = String(layout.placed.length).padStart(2, '0');
-    }
-    if (cur) {
-      ui.setProgress(idx + 1, layout.placed.length, cur.roomName);
-      ui.setActiveDot(idx);
+    if (cur && idx !== captionIdx && !ui.panelIsOpen()) {
+      captionIdx = idx;
+      ui.setCaption(cur.work.title, metaLine(cur.work));
     }
     const t = progressT(camZ);
     ui.setProgressBar(t);
@@ -455,11 +418,6 @@ async function boot(): Promise<void> {
         panelWork = null;
       }
       ui.showEnd(showEndNow);
-    }
-    const zone = layout.zones.find((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
-    if (zone && zone.name !== lastRoom) {
-      lastRoom = zone.name;
-      ui.flashRoom(zone.name);
     }
     // auto-fermeture du panneau seulement quand la caméra est arrivée (ou après le trajet)
     if (

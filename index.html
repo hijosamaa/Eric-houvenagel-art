@@ -9,7 +9,7 @@
       content="Galerie virtuelle 3D des tableaux d'Eric Houvenagel (huile et aquarelle). Faites défiler pour visiter, cliquez sur une œuvre pour l'observer."
     />
     <meta property="og:title" content="Eric Houvenagel — Galerie virtuelle" />
-    <meta property="og:description" content="Galerie 3D des tableaux d'Eric Houvenagel (huile & aquarelle)." />
+    <meta property="og:description" content="Galerie 3D des tableaux d'Eric Houvenagel (huile &amp; aquarelle)." />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/src/style.css" />
@@ -28,47 +28,87 @@
     <div id="app">
       <canvas id="scene"></canvas>
 
+      <!-- amas 1 — identité -->
       <header id="brand">
         <span id="brand-name">Eric Houvenagel</span>
-        <span id="brand-sub">Galerie virtuelle · huile &amp; aquarelle</span>
+        <span id="brand-sub">Huile &amp; aquarelle</span>
       </header>
 
-      <nav id="minimap" aria-label="Plan de la galerie"></nav>
+      <!-- amas 2 + 3 — cartel : légende, rail du hall, commandes -->
+      <footer id="cartel">
+        <div id="cartel-progress" aria-hidden="true"><div id="progress-fill"></div></div>
 
-      <div id="room-banner" role="status"></div>
+        <div id="cartel-grid">
+          <div id="caption">
+            <h1 id="cap-title">Galerie</h1>
+            <p id="cap-meta"></p>
+          </div>
+
+          <nav id="minimap" aria-label="Plan de la galerie"></nav>
+
+          <div id="nav">
+            <button id="btn-prev" class="nav-btn" aria-label="Œuvre précédente">
+              <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1 1.4 6 6 11" /></svg>
+            </button>
+            <button id="btn-next" class="nav-btn" aria-label="Œuvre suivante">
+              <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M1 1l4.6 5L1 11" /></svg>
+            </button>
+            <button id="btn-index" class="nav-link">Index</button>
+          </div>
+        </div>
+      </footer>
+
       <div id="toast" role="status"></div>
 
-      <div id="dots" aria-label="Accès direct aux œuvres"></div>
-
-      <div id="hud-bottom">
-        <button id="btn-prev" class="hud-btn" aria-label="Œuvre précédente">‹</button>
-        <div id="progress">
-          <span id="p-cur">–</span><span class="sep">/</span><span id="p-total">–</span>
-          <span id="p-room"></span>
-        </div>
-        <button id="btn-next" class="hud-btn" aria-label="Œuvre suivante">›</button>
-        <button id="btn-index" class="hud-btn wide">Index</button>
-        <button id="btn-free" class="hud-btn wide">Explorer librement</button>
-      </div>
-
       <aside id="panel" aria-label="Fiche de l'œuvre">
-        <button id="panel-close" aria-label="Fermer la fiche">×</button>
-        <p id="panel-kicker"><span id="panel-num"></span><span id="panel-room"></span></p>
-        <img id="panel-img" alt="" sizes="(max-width: 720px) 88vw, 380px" decoding="async" />
-        <h2 id="panel-title"></h2>
-        <p id="panel-meta"></p>
-        <p id="panel-desc"></p>
-        <div class="panel-actions">
-          <button id="panel-prev" class="hud-btn wide">← Précédente</button>
-          <button id="panel-zoom" class="hud-btn wide accent">Voir en grand</button>
-          <button id="panel-next" class="hud-btn wide">Suivante →</button>
+        <div id="panel-bar">
+          <button id="panel-back">
+            <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1 1.4 6 6 11" /></svg>
+            <span>Galerie</span>
+          </button>
+          <div id="panel-nav">
+            <button id="panel-prev" aria-label="Œuvre précédente">
+              <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1 1.4 6 6 11" /></svg>
+            </button>
+            <button id="panel-next" aria-label="Œuvre suivante">
+              <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M1 1l4.6 5L1 11" /></svg>
+            </button>
+          </div>
+          <button id="panel-close" aria-label="Fermer la fiche">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" /></svg>
+          </button>
+        </div>
+
+        <img id="panel-img" alt="" sizes="(max-width: 720px) 100vw, 420px" decoding="async" />
+
+        <div id="panel-body">
+          <h2 id="panel-title"></h2>
+
+          <dl id="panel-meta">
+            <div><dt>Année</dt><dd id="m-year"></dd></div>
+            <div><dt>Technique</dt><dd id="m-medium"></dd></div>
+            <div><dt>Dimensions</dt><dd id="m-dims"></dd></div>
+            <div><dt>Salle</dt><dd id="m-room"></dd></div>
+          </dl>
+
+          <p id="panel-desc"></p>
+
+          <div id="panel-actions">
+            <button id="panel-zoom" class="btn btn-primary">Voir en grand</button>
+            <button id="panel-index" class="btn">Index</button>
+          </div>
         </div>
       </aside>
 
       <div id="index-overlay" class="hidden" role="dialog" aria-modal="true" aria-label="Index des œuvres">
         <div id="index-head">
-          <h2>Index des œuvres</h2>
-          <button id="index-close" class="hud-btn" aria-label="Fermer l'index">×</button>
+          <h2>L'index des œuvres</h2>
+          <div id="index-head-actions">
+            <button id="btn-free" class="nav-link">Explorer librement</button>
+            <button id="index-close" class="nav-btn" aria-label="Fermer l'index">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" /></svg>
+            </button>
+          </div>
         </div>
         <div id="index-body"></div>
       </div>
@@ -78,33 +118,37 @@
           <img id="lightbox-img" alt="" sizes="92vw" decoding="async" />
           <figcaption><strong id="lb-title"></strong><span id="lb-meta"></span></figcaption>
         </figure>
-        <button id="lb-close" class="hud-btn lb" aria-label="Fermer">×</button>
-        <button id="lb-prev" class="hud-btn lb left" aria-label="Œuvre précédente">‹</button>
-        <button id="lb-next" class="hud-btn lb right" aria-label="Œuvre suivante">›</button>
+        <button id="lb-close" class="lb-btn" aria-label="Fermer">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" /></svg>
+        </button>
+        <button id="lb-prev" class="lb-btn left" aria-label="Œuvre précédente">
+          <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1 1.4 6 6 11" /></svg>
+        </button>
+        <button id="lb-next" class="lb-btn right" aria-label="Œuvre suivante">
+          <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M1 1l4.6 5L1 11" /></svg>
+        </button>
       </div>
 
       <div id="end" class="hidden" role="status">
         <div id="end-inner">
           <img id="end-thumb" alt="" sizes="(max-width: 640px) 128px, 168px" decoding="async" />
-          <p id="end-kicker">Fin de la visite</p>
           <h2>Merci de votre visite</h2>
-          <div class="panel-actions center">
-            <button id="end-index" class="hud-btn wide">Voir l'index des œuvres</button>
-            <button id="end-restart" class="hud-btn wide accent">Revoir depuis le début</button>
+          <div id="end-actions">
+            <button id="end-index" class="btn">Voir l'index des œuvres</button>
+            <button id="end-restart" class="btn btn-primary">Revoir depuis le début</button>
           </div>
         </div>
       </div>
 
       <div id="intro">
         <div id="intro-inner">
-          <p id="intro-kicker">Peinture · huile &amp; aquarelle</p>
           <h1 id="intro-name">Eric Houvenagel</h1>
-          <p id="intro-tagline">Galerie virtuelle</p>
+          <p id="intro-tagline">Huile et aquarelle</p>
           <div id="intro-strip" aria-hidden="true"></div>
           <div id="loader-bar"><div id="loader-fill"></div></div>
           <p id="loader-text">Chargement de la galerie…</p>
           <button id="btn-enter" disabled>Entrer dans la galerie</button>
-          <p class="hint">Faites défiler pour avancer · cliquez sur un tableau pour l'observer</p>
+          <p class="hint">Faites défiler pour avancer. Un clic sur un tableau ouvre sa fiche.</p>
         </div>
       </div>
 
@@ -112,12 +156,7 @@
         Votre navigateur ne supporte pas WebGL : la galerie 3D n'est pas disponible sur cet appareil.
       </div>
 
-      <div id="big-counter" aria-hidden="true"><span id="bc-cur">01</span><span class="bc-sep">—</span><span id="bc-total">05</span></div>
-      <div id="scroll-hint" aria-hidden="true"><span>Défiler</span><i></i></div>
-      <div id="free-hint" aria-hidden="true">WASD pour avancer · glisser pour regarder · Échap pour la visite guidée</div>
-      <div id="progress-bar" aria-hidden="true"><div id="progress-fill"></div></div>
       <div class="grain" aria-hidden="true"></div>
-      <div id="cursor" aria-hidden="true"><span>Voir</span></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

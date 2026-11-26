@@ -1,12 +1,16 @@
 import { hallBounds, type Layout, type PlacedWork } from './layout';
 
 /**
- * Minimap v3 — robuste en grand nombre d'œuvres (?dup=N) :
- * - piste à taille adaptative (hauteur dynamique desktop, largeur mobile),
- * - stops de taille adaptative (--sz), numéros masqués en mode dense (classe .mini),
- * - segments de salles (.mm-seg), marqueur caméra (.mm-cam), butées début/fin (.mm-cap),
- * - mode tactile dense : les stops deviennent non-cliquables et un clic sur la piste
- *   choisit l'œuvre la plus proche (plus de tap ambigu).
+ * Le rail — plan du hall, sans carte (v4).
+ *
+ * La carte flottante de la v3 a disparu : le plan est devenu une graduation de
+ * 1 px posée sur la ligne du cartel. Ce qui reste, et qui suffit :
+ * - une graduation par œuvre, cliquable (cible de 15 px, chevauchement borné) ;
+ * - un segment par salle (.mm-seg) ;
+ * - le nom de la salle courante, posé à l'aplomb de sa zone et qui glisse avec la caméra ;
+ * - un curseur de caméra (.mm-cam).
+ * La géométrie est calculée à partir de hallBounds() : le rail couvre tout le hall,
+ * les œuvres n'en occupent qu'une fraction centrale.
  */
 export class Minimap {
   onPick: ((p: PlacedWork) => void) | null = null;
@@ -30,9 +34,6 @@ export class Minimap {
     this.zMax = zMax;
     this.span = zMax - zMin;
 
-    const head = document.createElement('div');
-    head.className = 'mm-head';
-    head.textContent = 'Plan';
     this.roomLabel = document.createElement('div');
     this.roomLabel.className = 'mm-room';
     this.track = document.createElement('div');
@@ -102,7 +103,6 @@ export class Minimap {
       if (best) this.onPick?.(best);
     });
 
-    root.appendChild(head);
     root.appendChild(this.roomLabel);
     root.appendChild(this.track);
 
@@ -110,40 +110,18 @@ export class Minimap {
     this.relayout();
   }
 
-  /** Recalcule la taille de la piste et des stops selon la place disponible et N. */
+  /**
+   * Le rail n'a plus de dimension adaptative : il prend la largeur que lui donne
+   * la grille du cartel. relayout() ne sert plus qu'à mesurer la place disponible
+   * pour resserrer la cible de clic quand les œuvres sont nombreuses (?dup=N).
+   */
   relayout(): void {
     const n = this.layout.placed.length;
-    const horizontal = window.innerWidth <= 640;
-    // fraction du hall réellement occupée par les œuvres (les marges de hallBounds ne comptent pas)
-    const zs = this.layout.placed.map((p) => p.z);
-    const workSpan = Math.max(1, Math.max(...zs) - Math.min(...zs));
-    const fraction = Math.min(1, workSpan / this.span);
-    let trackLen: number;
-    if (horizontal) {
-      trackLen = Math.min(window.innerWidth * 0.7, 320);
-      this.track.style.width = `${Math.round(trackLen)}px`;
-      this.track.style.height = '';
-    } else {
-      // assez haut pour viser un écart de 28 px entre stops quand c'est possible
-      // (28 = 24 px de stop + marge pour le scale 1.25 du stop actif)
-      trackLen = Math.min(460, Math.max(180, ((n - 1) * 28) / fraction));
-      this.track.style.height = `${Math.round(trackLen)}px`;
-      this.track.style.width = '';
-    }
-    const gap = n > 1 ? (trackLen * fraction) / (n - 1) : trackLen;
-    const stopSize = Math.max(8, Math.min(24, Math.round(gap - 2)));
-    const showNum = stopSize >= 14 && gap >= 20;
-    this.dense = n > 1 && gap < 26;
-    this.track.classList.toggle('dense', this.dense);
+    const width = this.root.getBoundingClientRect().width || 1;
+    // écart horizontal entre deux graduations, en px
+    const gap = n > 1 ? width / (n - 1) : width;
+    this.dense = gap < 18;
     this.root.classList.toggle('dense', this.dense);
-    // scale du stop actif plafonné pour ne jamais chevaucher ses voisins
-    const activeScale = n > 1 ? Math.min(1.25, (gap / stopSize) * 0.98) : 1.25;
-    this.track.style.setProperty('--as', activeScale.toFixed(3));
-    this.stopList.forEach((s, i) => {
-      s.el.style.setProperty('--sz', `${stopSize}px`);
-      s.el.classList.toggle('mini', !showNum);
-      s.el.textContent = showNum ? String(i + 1) : '';
-    });
   }
 
   update(camZ: number, currentId: string | null): void {
@@ -154,6 +132,12 @@ export class Minimap {
       el.classList.toggle('active', id === currentId);
     }
     const zone = this.layout.zones.find((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
-    this.roomLabel.textContent = zone ? zone.name : '';
+    const name = zone ? zone.name : '';
+    if (this.roomLabel.textContent !== name) this.roomLabel.textContent = name;
+    if (zone) {
+      // à l'aplomb du début de la zone, borné pour ne jamais sortir du rail
+      const p = Math.min(96, Math.max(0, ((this.zMax - zone.zMax) / this.span) * 100));
+      this.roomLabel.style.setProperty('--p', `${p}%`);
+    }
   }
 }

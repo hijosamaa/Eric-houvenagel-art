@@ -92,13 +92,11 @@ export interface UICallbacks {
 }
 
 export interface UI {
-  setProgress(cur: number, total: number, room: string): void;
+  /** Légende du cartel : titre de l'œuvre courante + méta en une ligne. */
+  setCaption(title: string, meta: string): void;
   setProgressBar(t: number): void;
-  flashRoom(name: string): void;
   toast(msg: string, ms?: number): void;
   hideToast(): void;
-  buildDots(n: number, onPick: (i: number) => void): void;
-  setActiveDot(i: number): void;
   setWorks(works: PlacedWork[]): void;
   buildIndex(groups: IndexGroup[], baseUrl: string, onPick: (p: PlacedWork) => void): void;
   openIndex(): void;
@@ -118,6 +116,13 @@ export interface UI {
   setFreeLabel(active: boolean): void;
 }
 
+/** Une ligne de méta factuelle : « 2026, Acrylique sur bois, 80 x 80 cm ». */
+export function metaLine(w: Work): string {
+  return [w.year > 0 ? String(w.year) : null, w.medium || null, w.dimensions || null]
+    .filter(Boolean)
+    .join(', ');
+}
+
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} introuvable`);
@@ -131,7 +136,6 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   const intro = $('intro');
   const indexOverlay = $('index-overlay');
   const endOverlay = $('end');
-  let roomTimer: number | undefined;
   let toastTimer: number | undefined;
   let works: PlacedWork[] = [];
   let lbId: string | null = null;
@@ -157,6 +161,15 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   $('panel-prev').addEventListener('click', cb.onPrev);
   $('panel-next').addEventListener('click', cb.onNext);
   $('panel-zoom').addEventListener('click', cb.onZoom);
+  $('panel-index').addEventListener('click', () => {
+    panel.classList.remove('open');
+    cb.onClosePanel();
+    indexOverlay.classList.remove('hidden');
+  });
+  $('panel-back').addEventListener('click', () => {
+    panel.classList.remove('open');
+    cb.onClosePanel();
+  });
   ($('panel-img') as HTMLImageElement).addEventListener('click', cb.onZoom);
   $('lb-close').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -228,29 +241,20 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     setResponsiveImg(lbImg, p.work, baseUrl, '92vw');
     lbImg.alt = p.work.title;
     $('lb-title').textContent = p.work.title;
-    const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
-      .filter(Boolean)
-      .join(' — ');
-    $('lb-meta').textContent = bits;
+    $('lb-meta').textContent = metaLine(p.work);
     lightbox.classList.remove('hidden');
     ($('lb-close') as HTMLButtonElement).focus();
   }
 
   return {
-    setProgress(cur, total, room) {
-      $('p-cur').textContent = String(cur);
-      $('p-total').textContent = String(total);
-      $('p-room').textContent = room ? `— ${room}` : '';
+    setCaption(title, meta) {
+      const t = $('cap-title');
+      const m = $('cap-meta');
+      if (t.textContent !== title) t.textContent = title;
+      if (m.textContent !== meta) m.textContent = meta;
     },
     setProgressBar(t) {
       $('progress-fill').style.width = `${Math.round(t * 100)}%`;
-    },
-    flashRoom(name) {
-      const b = $('room-banner');
-      b.textContent = name;
-      b.classList.add('show');
-      window.clearTimeout(roomTimer);
-      roomTimer = window.setTimeout(() => b.classList.remove('show'), 2400);
     },
     toast(msg, ms = 6000) {
       const t = $('toast');
@@ -262,25 +266,6 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     hideToast() {
       window.clearTimeout(toastTimer);
       $('toast').classList.remove('show');
-    },
-    buildDots(n, onPick) {
-      const box = $('dots');
-      box.innerHTML = '';
-      for (let i = 0; i < n; i++) {
-        const b = document.createElement('button');
-        b.className = 'dot';
-        b.type = 'button';
-        b.textContent = String(i + 1);
-        b.setAttribute('aria-label', `Aller à l'œuvre ${i + 1}`);
-        b.addEventListener('click', () => onPick(i));
-        box.appendChild(b);
-      }
-    },
-    setActiveDot(i) {
-      const dots = $('dots').children;
-      for (let k = 0; k < dots.length; k++) {
-        dots[k].classList.toggle('active', k === i);
-      }
     },
     setWorks(w) {
       works = w;
@@ -300,18 +285,21 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
           const card = document.createElement('button');
           card.className = 'index-card';
           card.type = 'button';
+          const frame = document.createElement('span');
+          frame.className = 'index-card-frame';
           const img = document.createElement('img');
-          setResponsiveImg(img, p.work, base, '(max-width: 640px) 42vw, 240px');
+          setResponsiveImg(img, p.work, base, '(max-width: 640px) 42vw, 260px');
           img.alt = p.work.title;
           img.loading = 'lazy';
           img.decoding = 'async';
+          frame.appendChild(img);
           const t = document.createElement('span');
           t.className = 'index-card-title';
           t.textContent = p.work.title;
           const m = document.createElement('span');
           m.className = 'index-card-meta';
-          m.textContent = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null].filter(Boolean).join(' — ');
-          card.appendChild(img);
+          m.textContent = metaLine(p.work);
+          card.appendChild(frame);
           card.appendChild(t);
           card.appendChild(m);
           card.addEventListener('click', () => {
@@ -335,15 +323,15 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       const img = $('panel-img') as HTMLImageElement;
       setResponsiveImg(img, p.work, baseUrl, '(max-width: 720px) 88vw, 380px');
       img.alt = p.work.title;
-      const idx = works.findIndex((w) => w.work.id === p.work.id);
-      $('panel-num').textContent = works.length > 0 && idx >= 0 ? `Œuvre ${idx + 1} / ${works.length}` : '';
-      $('panel-room').textContent = p.roomName;
       $('panel-title').textContent = p.work.title;
-      const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
-        .filter(Boolean)
-        .join(' — ');
-      $('panel-meta').textContent = bits;
+      $('m-year').textContent = p.work.year > 0 ? String(p.work.year) : '—';
+      $('m-medium').textContent = p.work.medium || '—';
+      $('m-dims').textContent = p.work.dimensions || '—';
+      $('m-room').textContent = p.roomName;
       $('panel-desc').textContent = p.work.description;
+      $('cap-title').textContent = p.work.title;
+      $('cap-meta').textContent = metaLine(p.work);
+      panel.scrollTop = 0;
       panel.classList.add('open');
     },
     closePanel() {
@@ -384,7 +372,9 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     },
     setLoader(ratio, done) {
       $('loader-fill').style.width = `${Math.round(ratio * 100)}%`;
-      $('loader-text').textContent = done ? 'Prêt — bonne visite' : `Chargement de la galerie… ${Math.round(ratio * 100)} %`;
+      $('loader-text').textContent = done
+        ? 'Prêt. Bonne visite.'
+        : `Chargement de la galerie… ${Math.round(ratio * 100)} %`;
       ($('btn-enter') as HTMLButtonElement).disabled = !done;
     },
     hideIntro() {
