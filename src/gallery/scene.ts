@@ -1,11 +1,18 @@
 import * as THREE from 'three';
 
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 
-import { HALL_HEIGHT, HALL_WIDTH, Z_START, hallBounds, type Layout } from './layout';
+import { HALL_HEIGHT, HALL_WIDTH, Z_START, hallBounds, portalPositions, type Layout } from './layout';
 
 import { HEMI, ROOF_LAYER, SKY_FILL, SUN, TableSpots } from './lights';
+
+import { beamTexture, metalTexture, precalcTexture, rugTexture } from './textures';
+
+import { buildFurniture, furnitureMaterials } from './furniture';
 
 export interface SceneContext {
   renderer: THREE.WebGLRenderer;
@@ -17,70 +24,19 @@ export interface SceneContext {
   spots: TableSpots;
 }
 
-interface TexOpts {
-  repeat?: [number, number];
-  aniso: number;
-}
-
-/** Échelle de texture du plâtre : 1 tuile = 8,5 m dans les deux directions (P2-4). */
+/** Échelle de texture du plâtre : 1 tuile = 13 m dans les deux directions. */
 const PLASTER_TILE = 13;
 /** Échelle de texture du plafond (la tuile suit les UV en mètres de l'extrusion). */
 const CEILING_TILE = 6.4;
-
-function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const g = c.getContext('2d');
-  if (!g) throw new Error('Contexte 2D indisponible');
-  return [c, g];
-}
-
-const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
-
-/**
- * Texture précalculée au build (public/assets/textures/<name>.webp, généré par
- * scripts/gen-textures.mjs). Un placeholder 2×2 est retourné immédiatement pour
- * ne pas bloquer le boot ; le fichier statique est chargé en arrière-plan puis
- * injecté dans la texture (mêmes paramètres : repeat, anisotropy, colorSpace).
- * Si le chargement échoue (404, WebP non supporté…), on retombe sur le générateur
- * canvas 2D d'origine (`draw`) : aucun changement de comportement visuel.
- */
-function precalcTexture(
-  name: string,
-  size: number,
-  draw: (g: CanvasRenderingContext2D, s: number) => void,
-  opts: TexOpts,
-  placeholder: string,
-  srgb = true,
-): THREE.Texture {
-  const [c, g] = makeCanvas(2);
-  g.fillStyle = placeholder;
-  g.fillRect(0, 0, 2, 2);
-  const t: THREE.Texture = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
-  t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-  t.anisotropy = opts.aniso;
-  if (opts.repeat) t.repeat.set(opts.repeat[0], opts.repeat[1]);
-  void new THREE.TextureLoader()
-    .loadAsync(`${TEX_ASSETS}${name}.webp`)
-    .then((loaded) => {
-      t.image = loaded.image;
-      t.needsUpdate = true;
-    })
-    .catch(() => {
-      const [c2, g2] = makeCanvas(size);
-      draw(g2, size);
-      t.image = c2;
-      t.needsUpdate = true;
-    });
-  return t;
-}
+/** Échelle de tuile du tapis : 1 tuile = 2,6 m. */
+const RUG_TILE = 2.6;
+/** Hauteur de la cimaise (haut des toiles = WALL_Y + 0,75 = 2,30 → marge). */
+const CIMAISE_Y = 2.5;
 
 /** Plâtre 2048 : grain fin + grandes marbrures douces. */
 function plasterTexture(aniso: number, len: number): THREE.Texture {
   return precalcTexture('plaster', 2048, (g, s) => {
-    g.fillStyle = '#f2ede4';
+    g.fillStyle = '#ece5d8';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 26000; i++) {
       const v = Math.random() > 0.5 ? 255 : 208;
@@ -93,24 +49,24 @@ function plasterTexture(aniso: number, len: number): THREE.Texture {
       const x = Math.random() * s;
       const y = Math.random() * s;
       const rg = g.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, `rgba(206,196,176,${(0.05 + Math.random() * 0.06).toFixed(3)})`);
-      rg.addColorStop(1, 'rgba(206,196,176,0)');
+      rg.addColorStop(0, `rgba(198,186,164,${(0.05 + Math.random() * 0.06).toFixed(3)})`);
+      rg.addColorStop(1, 'rgba(198,186,164,0)');
       g.fillStyle = rg;
       g.beginPath();
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [Math.max(1, len / PLASTER_TILE), HALL_HEIGHT / PLASTER_TILE] }, '#f2ede4');
+  }, { aniso, repeat: [Math.max(1, len / PLASTER_TILE), HALL_HEIGHT / PLASTER_TILE] }, '#ece5d8');
 }
 
 /**
  * Enduit de plafond 2048. La géométrie du plafond est extrudée depuis une `Shape` dont
- * les UV valent des **mètres** (WorldUVGenerator) : le repeat se contente donc de ramener
- * une tuile à CEILING_TILE mètres, quelle que soit la découpe de la trémie.
+ * les UV valent des **mètres** (WorldUVGenerator) : le repeat ramène une tuile à
+ * CEILING_TILE mètres, quelle que soit la découpe de la trémie.
  */
 function ceilingTexture(aniso: number): THREE.Texture {
   return precalcTexture('ceiling', 2048, (g, s) => {
-    g.fillStyle = '#faf8f3';
+    g.fillStyle = '#f3efe6';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 9000; i++) {
       const v = Math.random() > 0.5 ? 255 : 214;
@@ -122,21 +78,17 @@ function ceilingTexture(aniso: number): THREE.Texture {
       const x = Math.random() * s;
       const y = Math.random() * s;
       const rg = g.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, `rgba(216,210,196,${(0.04 + Math.random() * 0.05).toFixed(3)})`);
-      rg.addColorStop(1, 'rgba(216,210,196,0)');
+      rg.addColorStop(0, `rgba(210,202,186,${(0.04 + Math.random() * 0.05).toFixed(3)})`);
+      rg.addColorStop(1, 'rgba(210,202,186,0)');
       g.fillStyle = rg;
       g.beginPath();
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [1 / CEILING_TILE, 1 / CEILING_TILE] }, '#faf8f3');
+  }, { aniso, repeat: [1 / CEILING_TILE, 1 / CEILING_TILE] }, '#f3efe6');
 }
 
-/**
- * Dégradé radial de la verrière (audit §3.1) : cœur à 1,0 (seul dépassement du seuil de
- * bloom avec la lentille), bords à ~0,30. Utilisé comme `emissiveMap` : la dalle cesse
- * d'être un aplat blanc brûlé et gagne un halo central (P1-6).
- */
+/** Dégradé radial de la verrière : cœur à 1,0 (seul dépassement du seuil de bloom avec la lentille), bords à ~0,30. */
 function skylightEmissiveTexture(): THREE.Texture {
   const w = 64;
   const h = 256;
@@ -175,7 +127,7 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
   const map = precalcTexture('floor', size, (g, s) => {
     const plankH = s / rows;
     for (let y = 0; y < rows; y++) {
-      const luma = 0.52 + Math.random() * 0.2;
+      const luma = 0.46 + Math.random() * 0.18;
       const hue = 24 + Math.random() * 9;
       const sat = 34 + Math.random() * 12;
       g.fillStyle = `hsl(${hue.toFixed(1)} ${sat.toFixed(1)}% ${(luma * 100).toFixed(1)}%)`;
@@ -225,7 +177,7 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
         g.fill();
       }
     }
-  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#9a7b52');
+  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#8a6c46');
 
   const rough = precalcTexture('floor-rough', 1024, (g, s) => {
     g.fillStyle = '#b8b8b8';
@@ -258,30 +210,6 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
   return { map, roughnessMap: rough };
 }
 
-/** Tapis tissé chaud (greige), liseré périphérique. Tuile = 2,2 m. */
-function runnerTexture(aniso: number, len: number): THREE.Texture {
-  return precalcTexture('runner', 1024, (g, s) => {
-    g.fillStyle = '#cdc2ad';
-    g.fillRect(0, 0, s, s);
-    // trame croisée
-    const step = 8;
-    for (let y = 0; y < s; y += step) {
-      for (let x = 0; x < s; x += step) {
-        const v = 190 + ((x + y) % 16 === 0 ? 22 : Math.random() * 16);
-        g.fillStyle = `rgb(${v | 0},${(v - 8) | 0},${(v - 26) | 0})`;
-        g.fillRect(x, y, step - 1, step - 1);
-      }
-    }
-    // liseré
-    g.strokeStyle = '#a89a7e';
-    g.lineWidth = 26;
-    g.strokeRect(13, 13, s - 26, s - 26);
-    g.strokeStyle = 'rgba(120,108,84,0.8)';
-    g.lineWidth = 4;
-    g.strokeRect(48, 48, s - 96, s - 96);
-  }, { aniso, repeat: [3.2 / 2.2, Math.max(2, Math.round((len - 1.5) / 2.2))] }, '#cdc2ad');
-}
-
 /** Plaque de salle en laiton, 320×80. */
 function plaqueTexture(text: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -309,6 +237,34 @@ function plaqueTexture(text: string): THREE.CanvasTexture {
   return t;
 }
 
+/** Panneau du mur du fond : nom de l'artiste en capitales espacées, discret. */
+function wallSignTexture(name: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 200;
+  const g = c.getContext('2d');
+  if (!g) throw new Error('Contexte 2D indisponible');
+  g.clearRect(0, 0, 1024, 200);
+  const text = name.toUpperCase();
+  const size = 92;
+  g.font = `500 ${size}px Georgia, serif`;
+  g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(125,118,106,0.85)';
+  // capitales espacées à la main (letterSpacing canvas pas universel)
+  const spacing = 26;
+  const widths = [...text].map((ch) => g.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) + spacing * (text.length - 1);
+  let x = (1024 - total) / 2;
+  [...text].forEach((ch, i) => {
+    g.fillText(ch, x, 104);
+    x += widths[i] + spacing;
+  });
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
 /** Profil de moulure extrudé (couronne / plinthe). */
 function moldingGeometry(profile: [number, number][], len: number): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
@@ -318,7 +274,7 @@ function moldingGeometry(profile: [number, number][], len: number): THREE.Extrud
   return new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
 }
 
-/** Multiplie les UV d'une géométrie (corrige l'échelle du plâtre sur les murs de bout, P2-4). */
+/** Multiplie les UV d'une géométrie (échelle du plâtre sur les murs de bout). */
 function scaleUV(geo: THREE.BufferGeometry, su: number, sv: number): THREE.BufferGeometry {
   const uv = geo.attributes.uv as THREE.BufferAttribute | undefined;
   if (!uv) return geo;
@@ -328,10 +284,9 @@ function scaleUV(geo: THREE.BufferGeometry, su: number, sv: number): THREE.Buffe
 }
 
 /**
- * Dalle de plafond **avec trémie** (audit D1) : l'ouverture de la verrière est découpée
- * dans la dalle, qui projette donc son ombre. C'est ce qui fait entrer la lumière
- * (P1-3) : la trame des meneaux tombe au sol au lieu d'un sol uniformément inondé.
- * Une seule `Shape` extrudée sur 6 cm : 1 draw call, arêtes de trémie réelles.
+ * Dalle de plafond **avec trémie** : l'ouverture de la verrière est découpée dans la
+ * dalle, qui projette donc son ombre — c'est ce qui fait entrer la lumière (trame des
+ * meneaux au sol). Une seule `Shape` extrudée sur 6 cm : 1 draw call, arêtes réelles.
  */
 function ceilingWithLightwell(
   halfWidth: number,
@@ -362,37 +317,37 @@ export function createScene(
   canvas: HTMLCanvasElement,
   layout: Layout,
   pixelRatio: number,
-  opts: { shadows: boolean; coarse: boolean },
+  opts: { shadows: boolean; coarse: boolean; artist?: string },
 ): SceneContext {
-  // MSAA du canvas désactivé quand le post-processing prend le relais (il a son propre
-  // MSAA sur render target) ; on le garde en mobile, où le post démarre en 'off'.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: opts.coarse, powerPreference: 'high-performance' });
   renderer.setPixelRatio(pixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // ACES reste l'unique tone mapper ; 0,95 compense l'apport du bloom et de l'AO.
-  renderer.toneMappingExposure = 0.95;
+  // Ambiance plus sombre « chiaroscuro » : l'exposition baisse (0,85) et ce sont les
+  // spots des tableaux qui portent la lumière, pas le plein jour.
+  renderer.toneMappingExposure = 0.75;
   renderer.shadowMap.enabled = opts.shadows;
-  // `PCFSoftShadowMap` a été retiré de three 0.187 (il retombe sur PCF avec un warning).
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
   const aniso = Math.min(maxAniso, opts.coarse ? 8 : 16);
 
   const scene = new THREE.Scene();
-  // Fond aligné sur le brouillard : la profondeur ne se referme plus sur un blanc vide.
-  scene.background = new THREE.Color(0xf2ebe0);
   const { zMin, zMax } = hallBounds(layout);
   const len = zMax - zMin;
   const cz = (zMin + zMax) / 2;
-  // 10 % de voile au fond au lieu de 28 % (P1-7).
-  scene.fog = new THREE.FogExp2(0xf2ebe0, 0.013);
+  // Fond aligné sur le brouillard, plus chaud/sombre que l'ancien blanc cassé.
+  scene.background = new THREE.Color(0xddd2bd);
+  // Brouillard adaptatif : ~12 % de voile au fond quelle que soit la longueur du hall
+  // (un hall de 100 m à densité fixe noierait la profondeur).
+  scene.fog = new THREE.FogExp2(0xddd2bd, Math.min(0.02, Math.max(0.004, 0.33 / len)));
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.4; // IBL studio tamisée : pas de reflets « plastique »
   pmrem.dispose();
 
   const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 120);
-  camera.position.set(2.7, 1.6, Z_START);
+  camera.position.set(layout.pathX, 1.6, Z_START);
   // Le toit vit sur ROOF_LAYER : la caméra doit le voir (voir lights.ts).
   camera.layers.enable(ROOF_LAYER);
 
@@ -416,13 +371,11 @@ export function createScene(
     sun.shadow.bias = SUN.shadow.bias;
     sun.shadow.normalBias = SUN.shadow.normalBias;
     sun.shadow.radius = 2;
-    // Le toit (couche ROOF_LAYER) doit projeter : la shadow map du soleil a besoin d'un
-    // masque non trivial pour ne pas retomber sur les layers de la caméra.
+    // Le toit (couche ROOF_LAYER) doit projeter la trame de la verrière au sol.
     sun.shadow.camera.layers.enable(ROOF_LAYER);
   }
 
-  // Ciel diffus de la trémie : RectAreaLight = substitut crédible de ciel, sans ombre ni
-  // CSM. Desktop uniquement (coût LTC par fragment, aucune ombre — audit §4.3).
+  // Ciel diffus de la trémie (RectAreaLight, desktop uniquement).
   if (SKY_FILL.enabled && !opts.coarse) {
     RectAreaLightUniformsLib.init();
     const sky = new THREE.RectAreaLight(SKY_FILL.color, SKY_FILL.intensity, SKY_FILL.width, SKY_FILL.height);
@@ -442,38 +395,54 @@ export function createScene(
     bumpMap: plasterTex,
     bumpScale: 0.014,
     roughness: 0.94,
-    envMapIntensity: 0.3,
+    envMapIntensity: 0.22,
   });
   const { map: floorMap, roughnessMap: floorRough } = floorTextures(aniso, len, opts.coarse);
   const floorMat = new THREE.MeshPhysicalMaterial({
     map: floorMap,
     roughnessMap: floorRough,
-    roughness: 0.38,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.4,
-    envMapIntensity: 0.4,
+    roughness: 0.42,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.5,
+    envMapIntensity: 0.35,
   });
   const ceilMat = new THREE.MeshStandardMaterial({
     map: ceilingTexture(aniso),
     roughness: 1,
-    envMapIntensity: 0.25,
+    envMapIntensity: 0.2,
   });
-  const wood = new THREE.MeshPhysicalMaterial({
-    color: 0x6e5638,
-    roughness: 0.4,
-    clearcoat: 0.35,
-    clearcoatRoughness: 0.4,
+  const wood = new THREE.MeshStandardMaterial({
+    map: beamTexture(aniso, 2.5, '#8a6a48'),
+    color: 0xd9b98f,
+    roughness: 0.5,
+    metalness: 0,
     envMapIntensity: 0.45,
   });
-  const trim = new THREE.MeshStandardMaterial({ color: 0xf8f4ec, roughness: 0.9, envMapIntensity: 0.35 });
-  const metalDark = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.4, metalness: 0.6, envMapIntensity: 0.5 });
-  const runnerMat = new THREE.MeshStandardMaterial({
-    map: runnerTexture(aniso, len),
-    roughness: 1,
-    envMapIntensity: 0.15,
+  const trim = new THREE.MeshStandardMaterial({ color: 0xece5d6, roughness: 0.9, envMapIntensity: 0.3 });
+  // Bronze brossé des châssis de verrière (remplace l'ancien métal sombre plat « moche »).
+  const bronze = new THREE.MeshStandardMaterial({
+    map: metalTexture(aniso),
+    color: 0xbfae94,
+    roughness: 0.38,
+    metalness: 0.9,
+    envMapIntensity: 1.0,
+  });
+  // Poutres longitudinales en chêne sombre encadrant la verrière.
+  const beamMat = new THREE.MeshStandardMaterial({
+    map: beamTexture(aniso, len / 4, '#7d5f3e'),
+    color: 0xc9a06a,
+    roughness: 0.55,
+    metalness: 0,
+    envMapIntensity: 0.4,
+  });
+  const rugMat = new THREE.MeshStandardMaterial({
+    map: rugTexture(aniso),
+    roughness: 0.95,
+    envMapIntensity: 0.12,
     polygonOffset: true,
     polygonOffsetFactor: -1,
   });
+  const rugEdge = new THREE.MeshStandardMaterial({ color: 0xd9c9a4, roughness: 0.9, envMapIntensity: 0.2 });
 
   const add = (
     geo: THREE.BufferGeometry,
@@ -495,8 +464,29 @@ export function createScene(
   const floor = add(new THREE.PlaneGeometry(HALL_WIDTH, len), floorMat, 0, 0, cz);
   floor.rotation.x = -Math.PI / 2;
 
-  const runner = add(new THREE.PlaneGeometry(3.2, len - 1.5), runnerMat, 3.4, 0.006, cz);
-  runner.rotation.x = -Math.PI / 2;
+  // ---- Tapis par salle (un par zone, sous le chemin de visite) ----
+  const RUG_X = -2.3;
+  const RUG_W = 3.0;
+  for (const zone of layout.zones) {
+    const rugLen = zone.zMax - zone.zMin - 1.6;
+    if (rugLen < 2) continue;
+    const rugZ = (zone.zMin + zone.zMax) / 2;
+    const geo = new THREE.PlaneGeometry(RUG_W, rugLen);
+    // tuile de 2,6 m dans les deux directions (échelle UV, pas de repeat sur la texture)
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * (RUG_W / RUG_TILE), uv.getY(i) * (rugLen / RUG_TILE));
+    }
+    uv.needsUpdate = true;
+    const rug = add(geo, rugMat, RUG_X, 0.006, rugZ);
+    rug.rotation.x = -Math.PI / 2;
+    // baguette de bordure (géométrie, pas dans la texture → pas de couture)
+    const e = 0.045;
+    add(new THREE.BoxGeometry(RUG_W + e * 2, 0.012, e), rugEdge, RUG_X, 0.007, rugZ - rugLen / 2);
+    add(new THREE.BoxGeometry(RUG_W + e * 2, 0.012, e), rugEdge, RUG_X, 0.007, rugZ + rugLen / 2);
+    add(new THREE.BoxGeometry(e, 0.012, rugLen), rugEdge, RUG_X - RUG_W / 2, 0.007, rugZ);
+    add(new THREE.BoxGeometry(e, 0.012, rugLen), rugEdge, RUG_X + RUG_W / 2, 0.007, rugZ);
+  }
 
   // ---- Dalle de plafond avec trémie (la lumière entre par l'ouverture) ----
   const skylightW = HALL_WIDTH * 0.42;
@@ -511,8 +501,8 @@ export function createScene(
   );
   ceil.name = 'plafond-tremie';
 
-  // ---- Murs (l'échelle du plâtre est corrigée par les UV, P2-4) ----
-  const wallU = len / PLASTER_TILE; // tuiles sur un mur long (base commune)
+  // ---- Murs (l'échelle du plâtre est corrigée par les UV) ----
+  const wallU = len / PLASTER_TILE;
   const endWallU = (HALL_WIDTH + 0.5) / PLASTER_TILE / wallU;
   const wallGeo = (w: number, h: number, d: number, endWall: boolean): THREE.BufferGeometry =>
     scaleUV(new THREE.BoxGeometry(w, h, d), endWall ? endWallU : 1, 1);
@@ -521,17 +511,19 @@ export function createScene(
   add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, true), plaster, 0, HALL_HEIGHT / 2, zMax);
   add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, true), plaster, 0, HALL_HEIGHT / 2, zMin);
 
-  // ---- Verrière : vitre émissive (dégradé) + châssis projetant ----
+  // ---- Verrière : vitre émissive (dégradé) + châssis bronze projetant ----
   const pane = new THREE.Mesh(
     new THREE.PlaneGeometry(skylightW, skylightL),
     new THREE.MeshStandardMaterial({
-      color: 0xeef3f7,
+      color: 0xe8edf2,
       emissive: 0xfffdf2,
       emissiveMap: skylightEmissiveTexture(),
-      emissiveIntensity: 1.25,
+      // 1,05 : le cœur de la dalle dépasse à peine le seuil de bloom (1,0) → halo doux,
+      // sans la dalle blanche brûlée d'avant (P1-6).
+      emissiveIntensity: 1.05,
       roughness: 0.15,
       metalness: 0.05,
-      envMapIntensity: 0.3,
+      envMapIntensity: 0.15,
     }),
   );
   pane.rotation.x = Math.PI / 2;
@@ -540,20 +532,25 @@ export function createScene(
   scene.add(pane);
 
   const memberY = HALL_HEIGHT - 0.05;
-  // cadre périphérique
-  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, memberY, cz - skylightL / 2, { cast: true, layer: ROOF_LAYER });
-  add(new THREE.BoxGeometry(skylightW + 0.12, 0.1, 0.07), metalDark, 0, memberY, cz + skylightL / 2, { cast: true, layer: ROOF_LAYER });
-  add(new THREE.BoxGeometry(0.07, 0.1, skylightL), metalDark, -skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
-  add(new THREE.BoxGeometry(0.07, 0.1, skylightL), metalDark, skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
+  // cadre périphérique de la trémie (profilés bronze affinés)
+  add(new THREE.BoxGeometry(skylightW + 0.14, 0.09, 0.07), bronze, 0, memberY, cz - skylightL / 2, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(skylightW + 0.14, 0.09, 0.07), bronze, 0, memberY, cz + skylightL / 2, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(0.07, 0.09, skylightL), bronze, -skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
+  add(new THREE.BoxGeometry(0.07, 0.09, skylightL), bronze, skylightW / 2, memberY, cz, { cast: true, layer: ROOF_LAYER });
   // meneaux longitudinaux (3) — ils dessinent la trame au sol
   for (let k = 1; k < 4; k++) {
     const x = -skylightW / 2 + (skylightW * k) / 4;
-    add(new THREE.BoxGeometry(0.05, 0.09, skylightL), metalDark, x, memberY, cz, { cast: true, layer: ROOF_LAYER });
+    add(new THREE.BoxGeometry(0.035, 0.08, skylightL), bronze, x, memberY, cz, { cast: true, layer: ROOF_LAYER });
   }
   // traverses
-  for (let z = cz - skylightL / 2 + 2.4; z < cz + skylightL / 2 - 1; z += 2.4) {
-    add(new THREE.BoxGeometry(skylightW, 0.09, 0.05), metalDark, 0, memberY, z, { cast: true, layer: ROOF_LAYER });
+  for (let z = cz - skylightL / 2 + 3; z < cz + skylightL / 2 - 1; z += 3) {
+    add(new THREE.BoxGeometry(skylightW, 0.08, 0.035), bronze, 0, memberY, z, { cast: true, layer: ROOF_LAYER });
   }
+
+  // ---- Poutres longitudinales en chêne sombre encadrant la verrière ----
+  const beamX = skylightW / 2 + 0.24;
+  add(new THREE.BoxGeometry(0.18, 0.26, len), beamMat, -beamX, HALL_HEIGHT - 0.13, cz, { cast: true });
+  add(new THREE.BoxGeometry(0.18, 0.26, len), beamMat, beamX, HALL_HEIGHT - 0.13, cz, { cast: true });
 
   // Moulures en relief (extrudées) : couronne en haut, plinthe en bas
   const inner = HALL_WIDTH / 2 - 0.125;
@@ -582,35 +579,81 @@ export function createScene(
   skirtL.position.set(-inner, 0, zMin);
   scene.add(skirtL);
 
-  // Cimaise (ligne de cimaise) + panneaux en partie basse du mur de gauche
-  add(new THREE.BoxGeometry(0.05, 0.06, len), trim, -HALL_WIDTH / 2 + 0.04, 2.3, cz);
-  for (let z = zMin + 2; z < zMax - 1; z += 2.8) {
-    add(new THREE.BoxGeometry(0.04, 1.9, 2.2), trim, -HALL_WIDTH / 2 + 0.035, 1.15, z);
+  // Cimaise des deux côtés (au-dessus des toiles : 2,50 > 1,55 + 0,75)
+  add(new THREE.BoxGeometry(0.05, 0.06, len), trim, -HALL_WIDTH / 2 + 0.04, CIMAISE_Y, cz);
+  add(new THREE.BoxGeometry(0.05, 0.06, len), trim, HALL_WIDTH / 2 - 0.04, CIMAISE_Y, cz);
+
+  // Boiserie sur le mur DROIT (le mur gauche porte les œuvres) : chaque panneau =
+  // cadre (liteaux) + panneau central légèrement en retrait. Tout est fusionné par
+  // matériau → 2 draw calls pour toute la boiserie.
+  const portals = portalPositions(layout);
+  const portalZs = portals.map((p) => p.z);
+  // tons proches du plâtre : la boiserie se lit en relief (ombre/GTAO), pas en contraste
+  const panelFrame = new THREE.MeshStandardMaterial({ color: 0xcfc7b4, roughness: 0.92, envMapIntensity: 0.28 });
+  const panelTone = new THREE.MeshStandardMaterial({ color: 0xdbd4c2, roughness: 0.94, envMapIntensity: 0.26 });
+  {
+    const frames: THREE.BufferGeometry[] = [];
+    const inners: THREE.BufferGeometry[] = [];
+    for (let z = zMin + 2; z < zMax - 1; z += 2.8) {
+      if (portalZs.some((pz) => Math.abs(pz - z) < 1.7)) continue; // pas de panneau dans un portail
+      const x = HALL_WIDTH / 2 - 0.05;
+      // cadre : 4 liteaux (haut/bas pleine largeur, côtés sur la hauteur intérieure)
+      for (const sy of [-1, 1]) {
+        const g = new THREE.BoxGeometry(0.07, 0.09, 2.3);
+        g.translate(x, 1.15 + sy * (0.95 - 0.045), z);
+        frames.push(g);
+      }
+      for (const sx of [-1, 1]) {
+        const g = new THREE.BoxGeometry(0.07, 1.72, 0.09);
+        g.translate(x + sx * (1.115 - 0.045), 1.15, z);
+        frames.push(g);
+      }
+      // panneau central en retrait (relief 5 cm, face à 2 cm du mur)
+      const inner = new THREE.BoxGeometry(0.05, 1.72, 2.12);
+      inner.translate(x - 0.01, 1.15, z);
+      inners.push(inner);
+    }
+    const merge = (parts: THREE.BufferGeometry[]): void => {
+      const g = mergeGeometries(parts, false);
+      for (const p of parts) p.dispose();
+      if (!g) return;
+      const m = new THREE.Mesh(g, parts === frames ? panelFrame : panelTone);
+      m.receiveShadow = opts.shadows;
+      m.castShadow = opts.shadows;
+      scene.add(m);
+    };
+    merge(frames);
+    merge(inners);
   }
 
-  const benchX = -HALL_WIDTH / 2 + 0.38;
-  for (let bz = zMin + 6; bz < zMax - 4; bz += 11) {
-    const seat = add(new THREE.BoxGeometry(0.5, 0.09, 1.8), wood, benchX, 0.45, bz);
-    const legA = add(new THREE.BoxGeometry(0.42, 0.4, 0.08), wood, benchX, 0.2, bz - 0.8);
-    const legB = add(new THREE.BoxGeometry(0.42, 0.4, 0.08), wood, benchX, 0.2, bz + 0.8);
-    for (const m of [seat, legA, legB]) m.castShadow = opts.shadows;
+  // ---- Mobilier (bancs, socles, plantes, console) — positions partagées avec physics.ts ----
+  scene.add(buildFurniture(layout, furnitureMaterials(aniso), opts.shadows));
+
+  // ---- Panneau du artiste sur le mur du fond ----
+  if (opts.artist) {
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.4, 0.66),
+      new THREE.MeshBasicMaterial({ map: wallSignTexture(opts.artist), transparent: true, depthWrite: false }),
+    );
+    sign.position.set(0, 2.35, zMin + 0.14);
+    scene.add(sign);
   }
 
-  // Portails entre salles + plaque laiton
-  for (let i = 0; i < layout.zones.length - 1; i++) {
-    const z = layout.zones[i].zMax;
+  // ---- Portails entre salles + plaque laiton ----
+  for (const portal of portals) {
+    const z = portal.z;
     const p1 = add(new THREE.BoxGeometry(0.35, HALL_HEIGHT, 0.35), wood, -HALL_WIDTH / 2 + 0.3, HALL_HEIGHT / 2, z);
     const p2 = add(new THREE.BoxGeometry(0.35, HALL_HEIGHT, 0.35), wood, HALL_WIDTH / 2 - 0.3, HALL_HEIGHT / 2, z);
     const lintel = add(new THREE.BoxGeometry(HALL_WIDTH - 0.6, 0.45, 0.35), wood, 0, HALL_HEIGHT - 0.225, z);
     for (const m of [p1, p2, lintel]) m.castShadow = opts.shadows;
+    const zone = portal.zoneIndex >= 0 ? layout.zones[portal.zoneIndex] : undefined;
     const plaque = new THREE.Mesh(
       new THREE.PlaneGeometry(1.3, 0.32),
-      new THREE.MeshBasicMaterial({ map: plaqueTexture(layout.zones[i + 1].name) }),
+      new THREE.MeshBasicMaterial({ map: plaqueTexture(zone?.name ?? '') }),
     );
-    // posée SUR la face du linteau (pas dans l'ouverture)
+    // posée SUR la face du linteau (pas dans l'ouverture), face +z = côté visiteur
     plaque.position.set(0, HALL_HEIGHT - 0.225, z + 0.18);
-    // cliquable : index de la salle suivante (géré par main.ts via controls.onZonePick)
-    plaque.userData.zoneIndex = i + 1;
+    plaque.userData.zoneIndex = portal.zoneIndex;
     scene.add(plaque);
   }
 

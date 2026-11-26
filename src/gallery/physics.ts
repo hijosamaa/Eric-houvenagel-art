@@ -5,16 +5,19 @@
  * téléchargé que via le `await import()` ci-dessous, au premier passage en mode libre
  * (voir GalleryControls.ensurePhysics). En mode guidé, aucune requête réseau rapier.
  *
- * Les colliders fixes sont reconstruits depuis `layout` + les constantes de layout.ts,
- * avec les mêmes positions que scene.ts (murs, bancs, portails, tableaux) — scene.ts
- * n'est pas modifié. Le joueur est une capsule kinématique (rotations verrouillées,
- * gravité 0 → vol stationnaire à y = 1.6, même hauteur que la caméra).
+ * Les colliders fixes sont reconstruits depuis `layout` + les helpers partagés
+ * (`portalPositions` de layout.ts, `furnitureColliders` de furniture.ts) : les mêmes
+ * fonctions produisent les meshes de scene.ts, donc la physique colle toujours au visuel.
+ * Le joueur est une capsule kinématique (rotations verrouillées, gravité 0 → vol
+ * stationnaire à y = 1.6, même hauteur que la caméra).
  *
  * `move(dx, dz)` fait un sweep `world.castShape` + glissement le long des normales
  * (3 itérations), équivalent d'un character controller : la capsule est bloquée par
  * les murs/bancs/piliers/tableaux mais glisse le long des surfaces.
  */
-import { HALL_WIDTH, HALL_HEIGHT, Z_START, hallBounds, type Layout } from './layout';
+import { HALL_WIDTH, HALL_HEIGHT, Z_START, hallBounds, portalPositions, type Layout } from './layout';
+
+import { furnitureColliders } from './furniture';
 
 type RapierModule = typeof import('@dimforge/rapier3d-compat');
 type RWorld = InstanceType<RapierModule['World']>;
@@ -71,24 +74,22 @@ class RapierWorld implements PhysicsWorld {
     fixed((HALL_WIDTH + 0.5) / 2, HALL_HEIGHT / 2, 0.125, 0, HALL_HEIGHT / 2, zMax);
     fixed((HALL_WIDTH + 0.5) / 2, HALL_HEIGHT / 2, 0.125, 0, HALL_HEIGHT / 2, zMin);
 
-    // bancs (positions identiques à scene.ts)
-    const benchX = -HALL_WIDTH / 2 + 0.38;
-    for (let bz = zMin + 6; bz < zMax - 4; bz += 11) {
-      fixed(0.25, 0.045, 0.9, benchX, 0.45, bz); // assise 0.5 x 0.09 x 1.8 à y = 0.45
-      fixed(0.21, 0.2, 0.04, benchX, 0.2, bz - 0.8); // pied A
-      fixed(0.21, 0.2, 0.04, benchX, 0.2, bz + 0.8); // pied B
+    // mobilier (bancs, socles, plantes, console) : positions calculées UNE fois dans
+    // furniture.ts et partagées avec scene.ts — la physique ne peut pas diverger du visuel.
+    for (const c of furnitureColliders(layout)) {
+      fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
     }
 
-    // portails entre salles (piliers p1/p2 + linteau, identiques à scene.ts)
-    for (let i = 0; i < layout.zones.length - 1; i++) {
-      const z = layout.zones[i].zMax;
+    // portails entre salles (piliers p1/p2 + linteau, mêmes z que scene.ts via portalPositions)
+    for (const portal of portalPositions(layout)) {
+      const z = portal.z;
       fixed(0.175, HALL_HEIGHT / 2, 0.175, -(HALL_WIDTH / 2 - 0.3), HALL_HEIGHT / 2, z); // p1
       fixed(0.175, HALL_HEIGHT / 2, 0.175, HALL_WIDTH / 2 - 0.3, HALL_HEIGHT / 2, z); // p2
       fixed((HALL_WIDTH - 0.6) / 2, 0.225, 0.175, 0, HALL_HEIGHT - 0.225, z); // linteau
     }
 
-    // un collider par tableau (mur droit) : dans le monde, après rotation.y=-π/2 du groupe,
-    // la largeur p.w s'étend selon z et la profondeur 0.08 selon x → hx=0.04, hz=(p.w+0.16)/2
+    // un collider par tableau : quelle que soit la rotation (±π/2), la largeur p.w
+    // s'étend selon z et la profondeur du cadre selon x → hx=0.04, hz=(p.w+0.16)/2
     for (const p of layout.placed) {
       fixed(0.04, (p.h + 0.16) / 2, (p.w + 0.16) / 2, p.x, p.y, p.z);
     }

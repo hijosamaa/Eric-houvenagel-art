@@ -113,6 +113,7 @@ export interface UI {
   closeLightbox(): void;
   lightboxIsOpen(): boolean;
   showEnd(v: boolean): void;
+  endIsOpen(): boolean;
   setLoader(ratio: number, done: boolean): void;
   hideIntro(): void;
   setFreeLabel(active: boolean): void;
@@ -372,6 +373,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
         }
       }
     },
+    endIsOpen: () => !endOverlay.classList.contains('hidden'),
     setLoader(ratio, done) {
       $('loader-fill').style.width = `${Math.round(ratio * 100)}%`;
       $('loader-text').textContent = done

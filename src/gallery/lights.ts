@@ -34,17 +34,17 @@ export const SPOT_SHADOW_LAYER = 2;
 
 /** Hémisphérique : remplissage minimal, l'indirect vient de l'occlusion (audit §3.1). */
 export const HEMI = {
-  sky: 0xf2f7ff,
-  ground: 0xcdbb9f,
-  intensity: 0.22,
-  /** Repli mobile (pas de RectAreaLight) : audit §5.2.3. */
-  coarseIntensity: 0.35,
+  sky: 0xf3e9d6,
+  ground: 0xbfae92,
+  intensity: 0.1,
+  /** Repli mobile (pas de RectAreaLight) : audit §5.2.3 — jamais sous le desktop. */
+  coarseIntensity: 0.28,
 } as const;
 
 /** Soleil : la lumière n'entre plus que par la trémie, il faut donc plus de puissance. */
 export const SUN = {
-  color: 0xfff4e6,
-  intensity: 3.4,
+  color: 0xffedd2,
+  intensity: 2.0,
   /** Élévation ≈ 77°, décalage de la tache ≈ 0,6 m pour que la trame « tombe » dans le champ. */
   position: { x: 1.6, y: 12, z: -2.2 },
   shadow: {
@@ -62,8 +62,8 @@ export const SUN = {
 
 /** Ciel diffus de la trémie (substitut de ciel, sans ombre ni CSM). Desktop uniquement. */
 export const SKY_FILL = {
-  color: 0xf3f8ff,
-  intensity: 2.2,
+  color: 0xeef4fc,
+  intensity: 1.2,
   width: 5.04,
   height: 23.97,
   y: 3.3,
@@ -73,16 +73,16 @@ export const SKY_FILL = {
 
 /** Spots « tableau » : un par œuvre, dans le luminaire (P0-2 / P1-5). */
 export const TABLE_SPOT = {
-  color: 0xfff1da,
-  /** Candélas (three utilise l'unité physique). 2,6 cd à 1,03 m → irradiance ≈ 2,44. */
-  intensity: 2.6,
+  color: 0xffe9c8,
+  /** Candélas (three utilise l'unité physique). 1,6 cd à ~1 m → irradiance ≈ 1,6 : lavage doux, pas d'aplat. */
+  intensity: 1.6,
   distance: 4,
-  /** Cône large : la toile **et** son pourtour sont éclairés sans blob central. */
-  angle: 1.15,
-  penumbra: 0.5,
+  /** Cône moyen + pénombre large : la toile est couverte, le mur autour reste en pénombre (pas de boule). */
+  angle: 1.0,
+  penumbra: 0.7,
   decay: 2.0,
   /** Le survol est porté par la lumière, plus par l'émissif de la toile (P0-3). */
-  hoverBoost: 0.6,
+  hoverBoost: 0.4,
   /** Hystérésis d'affectation : un spot installé ne bouge pas pour moins de 0,9 m. */
   hysteresis: 0.9,
   /** Fondu d'allumage / extinction, en secondes (350 ms). */
@@ -212,8 +212,9 @@ export class TableSpots {
         continue;
       }
       const p = placed[idx];
-      s.position.set(p.x - FRAME_METRICS.spotZ, p.y + FRAME_METRICS.spotY, p.z);
-      s.target.position.set(p.x, p.y + FRAME_METRICS.targetY, p.z);
+      // le spot est décalé du mur dans la direction de la normale du tableau (faceX)
+      s.position.set(p.x + p.faceX * FRAME_METRICS.spotZ, p.y + FRAME_METRICS.spotY, p.z);
+      s.target.position.set(p.x + p.faceX * 0.06, p.y + FRAME_METRICS.targetY, p.z);
       s.target.updateMatrixWorld();
       s.intensity = (TABLE_SPOT.intensity + (idx === this.hoverIndex ? TABLE_SPOT.hoverBoost : 0)) * ease(this.blend[i]);
       // Le premier slot projette, les autres non (1 seule passe d'ombre de spot).

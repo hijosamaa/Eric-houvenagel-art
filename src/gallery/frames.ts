@@ -1,34 +1,41 @@
 /**
  * Cadres, passe-partout et picture lights — audit 3D §6 (P0-1, P0-2, P2-1, P2-2).
  *
- * Deux variantes, basculées par la constante exportée `FRAME_VARIANT` :
- *  - 'discrete' (défaut, variante A « discrète ») : caisse en chêne 55 mm, passe-partout
- *    20 mm, tube laiton Ø 22 mm sur ~74 % de la largeur, lentille émissive faible.
+ * Trois variantes, basculées par la constante exportée `FRAME_VARIANT` :
+ *  - 'gilt' (défaut, livrée) : moulure dorée 70 mm avec **doucine** (anneau incliné
+ *    en retrait, plus sombre via couleur de sommet), passe-partout crème 55 mm,
+ *    tube laiton Ø 22 mm sur ~62 % de la largeur, lentille émissive faible.
+ *    La caisse + doucine sont fusionnées en UNE géométrie à couleurs de sommets
+ *    (1 draw call) : le profil capte la lumière différemment, ça ne lit plus « bande plate ».
+ *  - 'discrete' (variante A historique) : caisse en chêne 55 mm, passe-partout 20 mm.
  *  - 'museum' (variante B « muséale ») : moulure 65 mm à deux gradins, passe-partout
- *    80 mm biseauté, verre, **aucun appareil visible** (la lumière vient d'un spot encastré).
+ *    80 mm biseauté, verre, aucun appareil visible.
  *
  * Repère local du `Group` d'œuvre (cf. paintings.ts) : +z va **vers la salle**
- * (le groupe est tourné de −π/2, donc x_monde = x_groupe − z_local). La face intérieure
- * du parement est à z_local 0,045 (mur de 0,25 m centré sur x = ±6, soit 5,875 m).
+ * (groupe tourné de ±π/2 selon le mur ; après le flip des œuvres au mur gauche,
+ * rotation.y = +π/2 et x_monde = x_groupe + z_local). La face intérieure du parement
+ * est à z_local 0,045 (mur de 0,25 m centré sur x = ±6, soit 5,875 m).
  *
  * Conséquence géométrique (P0-1) : tout ce qui doit être vu est **devant** 0,045, et
  * rien n'est coplanaire avec le parement ni entre soi — les écarts valent tous >= 3 mm,
  * ce qui reste très au-dessus de la précision du depth buffer 24 bits sur ~6 m.
  *
- * Coût : caisse (1 draw), passe-partout (1 draw), luminaire tube + bras (1 draw),
+ * Coût : caisse+doucine (1 draw), passe-partout (1 draw), luminaire tube + bras (1 draw),
  * lentille (1 draw) → 4 draws par œuvre au lieu de 9, et aucun plan transparent.
  */
 import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export type FrameVariant = 'discrete' | 'museum';
+import { giltTexture } from './textures';
 
-/** Variante livrée. Passer à 'museum' pour la variante B de l'audit. */
-export const FRAME_VARIANT: FrameVariant = 'discrete';
+export type FrameVariant = 'discrete' | 'gilt' | 'museum';
 
-/** Un appareil visible est-il monté au-dessus de l'œuvre (variante A) ? */
-export const PICTURE_LIGHT_VISIBLE = FRAME_VARIANT === 'discrete';
+/** Variante livrée. Passer à 'museum' ou 'discrete' pour les variantes de l'audit. */
+export const FRAME_VARIANT: FrameVariant = 'gilt';
+
+/** Un appareil visible est-il monté au-dessus de l'œuvre ? */
+export const PICTURE_LIGHT_VISIBLE: boolean = (FRAME_VARIANT as FrameVariant) !== 'museum';
 
 /** Face intérieure du parement dans le repère local du groupe (mur 0,25 m centré sur x = 6). */
 export const WALL_FACE_Z = 0.045;
@@ -42,16 +49,16 @@ export const WALL_FACE_Z = 0.045;
 export const FRAME_METRICS = {
   /** Ordonnée locale de l'axe du luminaire (monde : p.y + 1,05 = 2,60 m). */
   luminaireY: 1.05,
-  /** Abscisse locale de l'ancre du spot (12 cm du parement, monde : p.x − 0,138). */
+  /** Profondeur locale de l'ancre du spot (dans la salle, devant le parement). */
   spotZ: 0.138,
   /** Ordonnée locale du spot (sous le tube). */
   spotY: 1.03,
-  /** Ordonnée locale de la cible du spot : centre haut de la toile. */
-  targetY: 0.05,
-  /** Luminance HDR de la lentille (MeshBasic HDR, avant tone mapping). */
-  lensPeak: 1.35,
+  /** Ordonnée locale de la cible du spot : centre de la toile (éclairage uniforme). */
+  targetY: 0.0,
+  /** Luminance HDR de la lentille (MeshBasic HDR, avant tone mapping) — juste au-dessus du seuil de bloom. */
+  lensPeak: 1.12,
   /** Largeur du tube en fraction de la largeur de toile. */
-  luminaireRatio: 0.74,
+  luminaireRatio: 0.62,
 } as const;
 
 interface VariantSpec {
@@ -73,9 +80,23 @@ interface VariantSpec {
   glass: boolean;
   /** Picture light visible. */
   luminaire: boolean;
+  /** Largeur = profondeur de la doucine intérieure (variante gilt ; 0 sinon). */
+  cove: number;
 }
 
 const SPECS: Record<FrameVariant, VariantSpec> = {
+  gilt: {
+    frameWidth: 0.07,
+    matWidth: 0.055,
+    canvasZ: 0.06,
+    matZ: 0.07,
+    frameFrontZ: 0.1,
+    stepWidth: 0,
+    stepDepth: 0,
+    glass: false,
+    luminaire: true,
+    cove: 0.02,
+  },
   discrete: {
     frameWidth: 0.055,
     matWidth: 0.02,
@@ -86,6 +107,7 @@ const SPECS: Record<FrameVariant, VariantSpec> = {
     stepDepth: 0,
     glass: false,
     luminaire: true,
+    cove: 0,
   },
   museum: {
     frameWidth: 0.065,
@@ -97,6 +119,7 @@ const SPECS: Record<FrameVariant, VariantSpec> = {
     stepDepth: 0.011,
     glass: true,
     luminaire: false,
+    cove: 0,
   },
 };
 
@@ -115,6 +138,7 @@ const MAT_TUCK = 0.002;
 
 let matCache: {
   frame: THREE.MeshPhysicalMaterial;
+  gilt: THREE.MeshPhysicalMaterial;
   mat: THREE.MeshStandardMaterial;
   brass: THREE.MeshStandardMaterial;
   lens: THREE.MeshBasicMaterial;
@@ -137,6 +161,21 @@ function materials(): NonNullable<typeof matCache> {
     clearcoatRoughness: 0.5,
     envMapIntensity: 0.4,
   });
+  // Dorure : métal réel + texture (brossage/mouchetures, remplaçable par IA via
+  // assets/textures/ai/gilt.webp). vertexColors = la doucine est assombrie par sommet,
+  // donc caisse + doucine tiennent en UN draw call. envMapIntensity haut pour compenser
+  // scene.environmentIntensity = 0,5 (sinon l'or paraît plastique).
+  const gilt = new THREE.MeshPhysicalMaterial({
+    map: giltTexture(8),
+    vertexColors: true,
+    color: 0xffffff,
+    roughness: 0.3,
+    metalness: 0.88,
+    clearcoat: 0.18,
+    clearcoatRoughness: 0.35,
+    envMapIntensity: 1.8,
+    side: THREE.DoubleSide,
+  });
   const mat = new THREE.MeshStandardMaterial({ color: 0xf6f2e9, roughness: 0.96, envMapIntensity: 0.2 });
   // Laiton patiné du tube : « plus clair que le cadre » et 22 mm de diamètre, il ne peut
   // plus lire comme une barre noire plus large que la toile (P0-2).
@@ -156,7 +195,7 @@ function materials(): NonNullable<typeof matCache> {
     polygonOffset: true,
     polygonOffsetFactor: -1,
   });
-  matCache = { frame, mat, brass, lens, glass };
+  matCache = { frame, gilt, mat, brass, lens, glass };
   return matCache;
 }
 
@@ -164,6 +203,7 @@ function materials(): NonNullable<typeof matCache> {
 export function disposeFrameMaterials(): void {
   if (!matCache) return;
   matCache.frame.dispose();
+  matCache.gilt.dispose();
   matCache.mat.dispose();
   matCache.brass.dispose();
   matCache.lens.dispose();
@@ -241,6 +281,34 @@ function bevelRing(
   return g;
 }
 
+/** Anneau incliné teinté (doucine dorée) — fusionnable avec les montants (attribut color). */
+function coveRing(
+  innerFront: readonly [number, number],
+  drop: number,
+  zFront: number,
+): THREE.BufferGeometry {
+  const g = bevelRing(
+    innerFront,
+    [innerFront[0] + drop, innerFront[1] + drop],
+    zFront,
+    zFront - drop,
+  );
+  return paint(g, 0.6, 0.5, 0.36); // doucine plus sombre → le profil accroche la lumière
+}
+
+/** Teinte uniforme d'une géométrie (attribut `color`, pour les matériaux vertexColors). */
+function paint(geo: THREE.BufferGeometry, r: number, g: number, b: number): THREE.BufferGeometry {
+  const n = geo.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = r;
+    col[i * 3 + 1] = g;
+    col[i * 3 + 2] = b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 /** 4 montants de moulure (boîtes) fusionnés en une seule géométrie. */
 function frameBars(
   openingHalf: readonly [number, number],
@@ -252,35 +320,41 @@ function frameBars(
 ): THREE.BufferGeometry {
   const [ox, oy] = openingHalf;
   const parts: THREE.BufferGeometry[] = [];
+  // les anneaux (doucine) sont non indexés → on convertit les boîtes pour fusionner
+  const push = (g: THREE.BufferGeometry): void => {
+    const ni = g.index ? g.toNonIndexed() : g;
+    if (ni !== g) g.dispose();
+    parts.push(ni);
+  };
   // haut / bas : pleine largeur extérieure
   for (const sy of [-1, 1]) {
     const g = new THREE.BoxGeometry((ox + width) * 2, width, depth);
     g.translate(0, sy * (oy + width / 2), zCenter);
-    parts.push(g);
+    push(g);
   }
   // gauche / droite : hauteur de l'ouverture seulement (pas de recouvrement aux angles)
   for (const sx of [-1, 1]) {
     const g = new THREE.BoxGeometry(width, oy * 2, depth);
     g.translate(sx * (ox + width / 2), 0, zCenter);
-    parts.push(g);
+    push(g);
   }
   if (stepWidth > 0) {
     // gradin intérieur (variante muséale) : 2e plan de moulure, en saillie
     for (const sy of [-1, 1]) {
       const g = new THREE.BoxGeometry((ox + stepWidth) * 2, stepWidth, depth * 0.6);
       g.translate(0, sy * (oy + stepWidth / 2), zCenter + depth / 2 + stepDepth / 2 - depth * 0.2);
-      parts.push(g);
+      push(g);
     }
     for (const sx of [-1, 1]) {
       const g = new THREE.BoxGeometry(stepWidth, oy * 2, depth * 0.6);
       g.translate(sx * (ox + stepWidth / 2), 0, zCenter + depth / 2 + stepDepth / 2 - depth * 0.2);
-      parts.push(g);
+      push(g);
     }
   }
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
   if (!merged) throw new Error('frames: fusion des montants impossible');
-  return merged;
+  return paint(merged, 1, 1, 1);
 }
 
 /** Tube Ø 22 mm + 2 bras plats, fusionnés (1 draw call). */
@@ -325,6 +399,20 @@ export interface FrameBuild {
  * Construit le cadre complet d'une œuvre de `w × h` (mètres).
  * `shadows` = le rendu projette-t-il des ombres (desktop) ; `coarse` désactive le verre.
  */
+/**
+ * Cache de géométries par (variante, w, h) : toutes les œuvres de même taille
+ * (ex. ratio 1 → 1,50 × 1,50 m) partagent les mêmes buffers → le hall à 30+ œuvres
+ * ne duplique pas la mémoire GPU. Les géométries cachées ne sont jamais `dispose()`
+ * individuellement (voir `dispose()` de FrameBuild).
+ */
+interface CachedGeos {
+  frame: THREE.BufferGeometry;
+  mat: THREE.BufferGeometry;
+  lum: THREE.BufferGeometry | null;
+  lens: THREE.BufferGeometry | null;
+}
+const geoCache = new Map<string, CachedGeos>();
+
 export function buildFrame(
   w: number,
   h: number,
@@ -342,25 +430,48 @@ export function buildFrame(
   const openingHalf: [number, number] = [matOuterHalf[0] - MAT_TUCK, matOuterHalf[1] - MAT_TUCK];
   const depth = spec.frameFrontZ - FRAME_BACK_Z;
 
-  const bars = frameBars(openingHalf, spec.frameWidth, depth, FRAME_BACK_Z + depth / 2, spec.stepWidth, spec.stepDepth);
-  geos.push(bars);
-  const frame = new THREE.Mesh(bars, m.frame);
+  const cacheKey = `${variant}:${w.toFixed(3)}x${h.toFixed(3)}`;
+  let cached = geoCache.get(cacheKey);
+  if (!cached) {
+    // caisse (montants, teintés blanc) + doucine (anneau incliné assombri) fusionnées :
+    // 1 draw call, le profil varie en normale donc en lumière.
+    const bars = frameBars(openingHalf, spec.frameWidth, depth, FRAME_BACK_Z + depth / 2, spec.stepWidth, spec.stepDepth);
+    const frameParts: THREE.BufferGeometry[] = [bars];
+    if (spec.cove > 0) {
+      frameParts.push(coveRing(openingHalf, spec.cove, spec.frameFrontZ));
+    }
+    const frameGeo = mergeGeometries(frameParts, false);
+    for (const p of frameParts) p.dispose();
+    if (!frameGeo) throw new Error('frames: fusion du cadre impossible');
+
+    // Passe-partout : anneau plat + biseau de fenêtre (aucun plan plein → pas de z-fighting).
+    const matInnerHalf: [number, number] = [canvasHalfX - MAT_OVERLAP, canvasHalfY - MAT_OVERLAP];
+    const matFrontInner: [number, number] = [matInnerHalf[0] + MAT_BEVEL, matInnerHalf[1] + MAT_BEVEL];
+    const ring = flatRing(matFrontInner, matOuterHalf, spec.matZ);
+    const bev = bevelRing(matFrontInner, matInnerHalf, spec.matZ, spec.canvasZ + 0.0005);
+    const matGeo = mergeGeometries([ring, bev], false);
+    ring.dispose();
+    bev.dispose();
+    if (!matGeo) throw new Error('frames: fusion du passe-partout impossible');
+
+    let lumGeo: THREE.BufferGeometry | null = null;
+    let lensGeo: THREE.BufferGeometry | null = null;
+    if (spec.luminaire) {
+      lumGeo = luminaireGeometry(w * FRAME_METRICS.luminaireRatio, FRAME_METRICS.luminaireY, 0.14);
+      lensGeo = new THREE.PlaneGeometry(w * FRAME_METRICS.luminaireRatio * 0.96, 0.01);
+    }
+    cached = { frame: frameGeo, mat: matGeo, lum: lumGeo, lens: lensGeo };
+    geoCache.set(cacheKey, cached);
+  }
+
+  const frame = new THREE.Mesh(cached.frame, variant === 'gilt' ? m.gilt : m.frame);
   frame.castShadow = opts.shadows;
   frame.receiveShadow = opts.shadows;
   frame.name = 'cadre';
   root.add(frame);
 
-  // Passe-partout : anneau plat + biseau de fenêtre (aucun plan plein → pas de z-fighting).
-  const matInnerHalf: [number, number] = [canvasHalfX - MAT_OVERLAP, canvasHalfY - MAT_OVERLAP];
-  const matFrontInner: [number, number] = [matInnerHalf[0] + MAT_BEVEL, matInnerHalf[1] + MAT_BEVEL];
-  const ring = flatRing(matFrontInner, matOuterHalf, spec.matZ);
-  const bev = bevelRing(matFrontInner, matInnerHalf, spec.matZ, spec.canvasZ + 0.0005);
-  const matGeo = mergeGeometries([ring, bev], false);
-  ring.dispose();
-  bev.dispose();
-  if (!matGeo) throw new Error('frames: fusion du passe-partout impossible');
-  geos.push(matGeo);
-  const matBoard = new THREE.Mesh(matGeo, m.mat);
+  // Passe-partout (géométrie cachée, partagée entre œuvres de même taille).
+  const matBoard = new THREE.Mesh(cached.mat, m.mat);
   matBoard.receiveShadow = opts.shadows;
   matBoard.name = 'passe-partout';
   root.add(matBoard);
@@ -375,20 +486,15 @@ export function buildFrame(
   }
 
   let luminaire: THREE.Object3D | null = null;
-  if (spec.luminaire) {
+  if (spec.luminaire && cached.lum && cached.lens) {
     const y = FRAME_METRICS.luminaireY;
     const z = 0.14;
-    const len = w * FRAME_METRICS.luminaireRatio;
-    const geo = luminaireGeometry(len, y, z);
-    geos.push(geo);
-    const body = new THREE.Mesh(geo, m.brass);
+    const body = new THREE.Mesh(cached.lum, m.brass);
     body.castShadow = opts.shadows;
     body.name = 'luminaire';
     root.add(body);
 
-    const lensGeo = new THREE.PlaneGeometry(len * 0.96, 0.01);
-    geos.push(lensGeo);
-    const lens = new THREE.Mesh(lensGeo, m.lens);
+    const lens = new THREE.Mesh(cached.lens, m.lens);
     lens.rotation.x = Math.PI / 2; // normale −y : la fente est vue de dessous
     lens.position.set(0, y - 0.0115, z + 0.001);
     lens.name = 'lentille';

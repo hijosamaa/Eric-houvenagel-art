@@ -43,7 +43,8 @@ function applyHover(e: PaintingEntry): void {
   const mat = e.imageMesh.material as THREE.MeshStandardMaterial;
   const active = e.placed.work.id === hoveredId;
   mat.emissiveIntensity = active && e.loaded ? CANVAS_EMISSIVE_HOVER : CANVAS_EMISSIVE_IDLE;
-  e.group.scale.setScalar(active ? 1.012 : 1);
+  // Le tableau ne BOUGE PAS au survol (le scale 1.012 faisait « fake ») : seul le spot
+  // et le curseur « Voir » répondent (voir main.ts).
 }
 
 export function setHovered(id: string | null, entries: PaintingEntry[]): void {
@@ -55,10 +56,12 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-// ---------- Atlas de cartels : 1 seule texture 2048×2048 pour toutes les œuvres ----------
+// ---------- Atlas de cartels : 1 texture pour toutes les œuvres ----------
+// 2048×2048 → 64 cellules (8 cols) ; au-delà (?dup=N), on passe à 4096 → 256 cellules.
 const ATLAS_SIZE = 2048;
+const ATLAS_SIZE_BIG = 4096;
 const ATLAS_COLS = 8;
-const ATLAS_CELL = ATLAS_SIZE / ATLAS_COLS; // 256
+let atlasCell = ATLAS_SIZE / ATLAS_COLS;
 
 function drawLabel(g: CanvasRenderingContext2D, work: Work, x: number, y: number, s: number): void {
   g.fillStyle = '#ffffff';
@@ -81,16 +84,18 @@ function drawLabel(g: CanvasRenderingContext2D, work: Work, x: number, y: number
 }
 
 function buildLabelAtlas(works: Work[]): THREE.CanvasTexture {
+  const size = works.length > 64 ? ATLAS_SIZE_BIG : ATLAS_SIZE;
+  atlasCell = size / ATLAS_COLS;
   const c = document.createElement('canvas');
-  c.width = c.height = ATLAS_SIZE;
+  c.width = c.height = size;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
   g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  g.fillRect(0, 0, size, size);
   works.forEach((w, i) => {
     const col = i % ATLAS_COLS;
     const row = Math.floor(i / ATLAS_COLS);
-    drawLabel(g, w, col * ATLAS_CELL, row * ATLAS_CELL, ATLAS_CELL);
+    drawLabel(g, w, col * atlasCell, row * atlasCell, atlasCell);
   });
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -134,15 +139,18 @@ export function buildPaintings(
   layout.placed.forEach((p, i) => {
     const group = new THREE.Group();
     group.position.set(p.x, p.y, p.z);
-    group.rotation.y = -Math.PI / 2;
+    // +π/2 quand le tableau est au mur gauche (faceX = +1) : la normale +z locale part
+    // vers +x, c'est-à-dire vers la salle.
+    group.rotation.y = p.faceX === 1 ? Math.PI / 2 : -Math.PI / 2;
 
     const frame = buildFrame(p.w, p.h, { shadows, coarse });
     group.add(frame.root);
 
-    // Toile : plan nu, sans émissif (la lumière fait tout), BVH pour le picking.
+    // Toile : plan nu, mate (pas de vernis spéculaire qui refléterait la verrière),
+    // BVH pour le picking.
     const imgMat = new THREE.MeshStandardMaterial({
       color: 0xe3ded6,
-      roughness: 0.8,
+      roughness: 0.82,
       envMapIntensity: 0.1,
     });
     const imgGeo = new THREE.PlaneGeometry(p.w, p.h);
@@ -153,9 +161,26 @@ export function buildPaintings(
     imageMesh.name = 'toile';
     group.add(imageMesh);
 
-    // Cartel musée : à côté du cadre, hauteur ~1,05 m, à 5 mm du parement.
+    // Cartel musée : sur une petite plaque métal décollée du mur (14 mm), à ~24 cm du
+    // cadre, centrée vers ~1,15 m — plus « collé » au mur ni au cadre. L'offset est
+    // clampé pour ne jamais toucher le cadre de l'œuvre suivante (pano w=2,4).
+    const nextP = layout.placed[i + 1];
+    const hwNext = nextP ? nextP.w / 2 + 0.123 : 0;
+    const gap = nextP ? p.z - nextP.z - (frame.halfWidth + hwNext) : 1;
+    const labelOff = frame.halfWidth + Math.max(0.08, Math.min(0.24, gap / 2 - 0.13));
+    const plateMat = new THREE.MeshStandardMaterial({
+      color: 0xb9b5ac,
+      metalness: 0.85,
+      roughness: 0.38,
+      envMapIntensity: 0.9,
+    });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.15, 0.014), plateMat);
+    plate.position.set(labelOff, -p.h / 2 + 0.42, 0.052);
+    plate.receiveShadow = shadows;
+    plate.name = 'cartel-plaque';
+    group.add(plate);
     const label = new THREE.Mesh(labelGeometry(i, 0.22, 0.135), labelMat);
-    label.position.set(frame.halfWidth + 0.1, -p.h / 2 + 0.3, 0.0525);
+    label.position.set(labelOff, -p.h / 2 + 0.42, 0.0595);
     label.name = 'cartel';
     group.add(label);
 

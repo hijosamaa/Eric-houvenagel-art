@@ -153,6 +153,53 @@ svg {
 #scene:active {
   cursor: grabbing;
 }
+/* Au-dessus d'un tableau cliquable, le curseur natif est masqué : la pastille « Voir »
+   (élément #cursor-hint piloté par main.ts) le remplace. */
+body.cursor-view #scene {
+  cursor: none;
+}
+body.cursor-view #scene:active {
+  cursor: none;
+}
+
+/* Pastille « Voir » qui suit la souris au-dessus d'une œuvre (desktop fine uniquement). */
+#cursor-hint {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(250, 247, 242, 0.92);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.55);
+  transition: opacity 160ms var(--e-out);
+  will-change: transform;
+}
+#cursor-hint.on {
+  opacity: 1;
+}
+#cursor-hint span {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink);
+  padding-left: 0.22em; /* recentre le texte avec l'interlettrage */
+}
+@media (hover: none), (pointer: coarse) {
+  #cursor-hint {
+    display: none;
+  }
+}
 
 /* ----------------------------------------------------------------------------
    Amas 1 — identité
@@ -858,14 +905,6 @@ svg {
   background: var(--paper);
   padding: var(--s1);
   border: 1px solid var(--line);
-}
-#end-inner h2 {
-  font-family: var(--serif);
-  font-size: clamp(34px, 4.8vw, 62px);
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  text-wrap: balance;
-  margin-bottom: var(--s6);
 }
 #end-actions {
   justify-content: center;

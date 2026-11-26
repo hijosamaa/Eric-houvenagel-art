@@ -36,19 +36,21 @@ export class GalleryControls {
   onNext: (() => void) | null = null;
   onPrev: (() => void) | null = null;
   onEscape: (() => void) | null = null;
+  /** Clic/tap sur la scène sans toucher d'œuvre ni de plaque (ex. « à côté » d'un tableau). */
+  onMiss: (() => void) | null = null;
 
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
   private readonly curve: THREE.CatmullRomCurve3;
   private readonly pos: THREE.Vector3;
-  private readonly lookVec = new THREE.Vector3(HALL_WIDTH / 2, WALL_Y, Z_START - 4);
+  private readonly lookVec = new THREE.Vector3(-HALL_WIDTH / 2, WALL_Y, Z_START - 4);
   private readonly raycaster = new THREE.Raycaster();
   private targetT = 0;
   private t = 0;
   private yaw = 0;
   private pitch = 0;
   private readonly keys = new Set<string>();
-  private drag: { x: number; y: number } | null = null;
+  private drag: { x: number; y: number; dist: number } | null = null;
   private focusTween: Tween<FocusState> | null = null;
   // Groupe tween.js dédié (v25 : new Tween(obj) sans groupe n'est PAS ajouté au groupe global)
   private readonly tweenGroup = new Group();
@@ -91,13 +93,15 @@ export class GalleryControls {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
 
     canvas.addEventListener('pointerdown', (e) => {
-      this.drag = { x: e.clientX, y: e.clientY };
+      this.drag = { x: e.clientX, y: e.clientY, dist: 0 };
     });
     window.addEventListener('pointermove', (e) => {
       if (!this.drag) return;
       const dx = e.clientX - this.drag.x;
       const dy = e.clientY - this.drag.y;
-      this.drag = { x: e.clientX, y: e.clientY };
+      this.drag.dist += Math.hypot(dx, dy);
+      this.drag.x = e.clientX;
+      this.drag.y = e.clientY;
       if (this.mode === 'free' && !this.focusTween) {
         this.yaw -= dx * 0.0032;
         this.pitch = clamp(this.pitch - dy * 0.0028, -0.55, 0.65);
@@ -108,7 +112,7 @@ export class GalleryControls {
       this.drag = null;
       if (!start) return;
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 8) {
-        this.tap(e.clientX, e.clientY, canvas);
+        this.tap(e.clientX, e.clientY, canvas, start.dist);
       }
     });
 
@@ -170,20 +174,32 @@ export class GalleryControls {
       this.focusTween = null;
       return;
     }
-    const state: FocusState = { x: pos.x, z: pos.z, yaw: this.yaw, pitch: this.pitch };
-    this.focusTween = new Tween(state, this.tweenGroup)
-      .to(target, FOCUS_DURATION_MS)
-      .easing(Easing.Cubic.Out)
-      .onUpdate((s) => {
-        pos.x = s.x;
-        pos.z = s.z;
-        this.yaw = s.yaw;
-        this.pitch = s.pitch;
-      })
-      .onComplete(() => {
-        this.focusTween = null;
-      })
-      .start();
+    // En mode libre, si la cible est de l'autre côté du hall, passer par un waypoint
+    // (pathX, p.z) : sinon le trajet en ligne droite traverse les portails/mobilier.
+    const legs: FocusState[] =
+      this.mode === 'free' && Math.abs(pos.x - p.viewX) > 2.5
+        ? [{ x: this.layout.pathX, z: p.viewZ, yaw: 0, pitch: this.pitch }, target]
+        : [target];
+    let leg = 0;
+    const startLeg = (): void => {
+      const from: FocusState = { x: pos.x, z: pos.z, yaw: this.yaw, pitch: this.pitch };
+      this.focusTween = new Tween(from, this.tweenGroup)
+        .to(legs[leg], FOCUS_DURATION_MS)
+        .easing(Easing.Cubic.Out)
+        .onUpdate((s) => {
+          pos.x = s.x;
+          pos.z = s.z;
+          this.yaw = s.yaw;
+          this.pitch = s.pitch;
+        })
+        .onComplete(() => {
+          leg++;
+          if (leg < legs.length) startLeg();
+          else this.focusTween = null;
+        })
+        .start();
+    };
+    startLeg();
   }
 
   scrollToWork(p: PlacedWork): void {
@@ -269,7 +285,7 @@ export class GalleryControls {
     this.targetT = clamp(window.scrollY / max, 0, 1);
   }
 
-  private tap(cx: number, cy: number, canvas: HTMLCanvasElement): void {
+  private tap(cx: number, cy: number, canvas: HTMLCanvasElement, dragDist = 0): void {
     const rect = canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((cx - rect.left) / rect.width) * 2 - 1,
@@ -286,7 +302,13 @@ export class GalleryControls {
     }
     // plaque laiton d'un portail : saute à la 1ère œuvre de la salle suivante
     const zi = obj?.userData.zoneIndex as number | undefined;
-    if (zi !== undefined) this.onZonePick?.(zi);
+    if (zi !== undefined) {
+      this.onZonePick?.(zi);
+      return;
+    }
+    // aucun hit : clic « à côté » → désélection éventuelle (deselect géré par main.ts).
+    // Un micro-drag de visée en mode libre (> 3 px) ne doit pas déclencher le deselect.
+    if (dragDist < 3) this.onMiss?.();
   }
 
   private onKey(e: KeyboardEvent): void {

@@ -4,6 +4,8 @@ import type { GalleryData } from './types';
 
 import { computeLayout, Z_START, type PlacedWork } from './gallery/layout';
 
+import { updateSunShadow } from './gallery/lights';
+
 import { createScene } from './gallery/scene';
 
 import { buildPaintings, ensureTexture, releaseTexture, setHovered } from './gallery/paintings';
@@ -105,7 +107,11 @@ async function boot(): Promise<void> {
   const layout = computeLayout(data, viewDist);
   const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
   const shadows = !coarse;
-  const { renderer, scene, camera, sun, spots } = createScene(canvas, layout, pixelRatio, { shadows, coarse });
+  const { renderer, scene, camera, sun, spots } = createScene(canvas, layout, pixelRatio, {
+    shadows,
+    coarse,
+    artist: data.artist,
+  });
   const entries = buildPaintings(scene, layout, shadows);
   const texAniso = touch ? 4 : 8;
 
@@ -122,6 +128,7 @@ async function boot(): Promise<void> {
   controls.pickMeshes = [...entries.map((e) => e.imageMesh), ...plaqueMeshes];
   // Clic sur une plaque de portail -> focus sur la 1ère œuvre de la salle suivante
   controls.onZonePick = (zi) => {
+    if (ui.endIsOpen()) return; // l'écran de fin laisse passer les clics (pointer-events:none)
     const zone = layout.zones[zi];
     const first = zone ? layout.placed.find((p) => p.roomName === zone.name) : undefined;
     if (first) focusWork(first);
@@ -267,10 +274,21 @@ async function boot(): Promise<void> {
     (document.getElementById('btn-free') as HTMLButtonElement).style.display = 'none';
   }
 
-  controls.onPick = (p) => focusWork(p);
+  controls.onPick = (p) => {
+    if (ui.endIsOpen()) return; // écran de fin affiché : on ne rouvre pas de fiche par-dessus
+    focusWork(p);
+  };
   controls.onNext = () => nav(1);
   controls.onPrev = () => nav(-1);
   minimap.onPick = (p) => focusWork(p);
+  // Clic « à côté » d'un tableau (desktop uniquement) → désélectionne la fiche ouverte.
+  controls.onMiss = () => {
+    if (!fine) return;
+    if (ui.panelIsOpen()) {
+      ui.closePanel();
+      panelWork = null;
+    }
+  };
 
   controls.onEscape = () => {
     if (ui.lightboxIsOpen()) {
@@ -319,8 +337,18 @@ async function boot(): Promise<void> {
   let hoverDirty = false;
   let hoverId: string | null = null;
   let hitZone = false;
+  // Curseur custom « Voir » (desktop fine uniquement) : pastille qui suit la souris
+  // et grossit au-dessus d'un tableau cliquable.
+  const hintEl = document.getElementById('cursor-hint');
+  let mouseClientX = window.innerWidth / 2;
+  let mouseClientY = window.innerHeight / 2;
+  let hintX = mouseClientX;
+  let hintY = mouseClientY;
+  let hintScale = 0.55;
   window.addEventListener('pointermove', (e) => {
     if (!fine) return;
+    mouseClientX = e.clientX;
+    mouseClientY = e.clientY;
     const rect = canvas.getBoundingClientRect();
     mouseNdc = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -372,6 +400,8 @@ async function boot(): Promise<void> {
       if (dz < 16) ensureTexture(e, base, texAniso);
       else if (dz > 30) releaseTexture(e); // LRU : libère la mémoire GPU au-delà de 30 m
     }
+    // overlay = tout ce qui couvre la scène et doit rendre le curseur natif (fiche, lightbox, index, fin)
+    const overlayOpen = ui.panelIsOpen() || ui.lightboxIsOpen() || ui.indexIsOpen() || ui.endIsOpen();
     if (hoverDirty && mouseNdc && entered) {
       hoverDirty = false;
       ray.setFromCamera(mouseNdc, camera);
@@ -381,7 +411,17 @@ async function boot(): Promise<void> {
       hitZone = hitObj?.userData.zoneIndex !== undefined;
       setHovered(hoverId, entries);
       const clickable = hoverId !== null || hitZone;
-      canvas.style.cursor = clickable ? 'pointer' : 'grab';
+      // au-dessus d'un tableau (sans overlay) : curseur natif masqué, remplacé par la pastille « Voir »
+      canvas.style.cursor = hoverId && !overlayOpen ? 'none' : clickable ? 'pointer' : 'grab';
+    }
+    if (fine && hintEl) {
+      hintX += (mouseClientX - hintX) * Math.min(1, dt * 14);
+      hintY += (mouseClientY - hintY) * Math.min(1, dt * 14);
+      const show = hoverId !== null && entered && !overlayOpen;
+      hintScale += ((show ? 1 : 0.55) - hintScale) * Math.min(1, dt * 14);
+      hintEl.style.transform = `translate(${hintX.toFixed(1)}px, ${hintY.toFixed(1)}px) scale(${hintScale.toFixed(3)})`;
+      hintEl.classList.toggle('on', show);
+      document.body.classList.toggle('cursor-view', show);
     }
     const idx = currentIndex(camZ);
     const cur = layout.placed[idx];
@@ -391,15 +431,9 @@ async function boot(): Promise<void> {
     spots.hoverIndex = hoverId ? layout.placed.findIndex((q) => q.work.id === hoverId) : -1;
     spots.update(camZ, layout.placed, dt);
 
-    // fenêtre d'ombre du soleil follows the camera (évite les texels géants en hall long)
-    if (shadows) {
-      sun.shadow.camera.top = camZ + 16;
-      sun.shadow.camera.bottom = camZ - 16;
-      sun.shadow.camera.left = -10;
-      sun.shadow.camera.right = 10;
-      sun.shadow.camera.updateProjectionMatrix();
-      sun.target.position.set(0, 0, camZ);
-    }
+    // fenêtre d'ombre du soleil : suit la caméra avec quantification 0,5 m (anti shadow
+    // swimming, P1-2) via le helper de lights.ts
+    if (shadows) updateSunShadow(sun, camZ);
 
     if (cur && idx !== captionIdx && !ui.panelIsOpen()) {
       captionIdx = idx;
@@ -437,6 +471,7 @@ async function boot(): Promise<void> {
   (window as unknown as { __gallery: unknown }).__gallery = {
     renderer,
     scene,
+    camera,
     layout,
     controls,
     perf: () => ({
