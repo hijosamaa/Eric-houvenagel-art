@@ -25,21 +25,51 @@ function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D]
   return [c, g];
 }
 
-function canvasTex(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void, opts: TexOpts): THREE.CanvasTexture {
-  const [c, g] = makeCanvas(size);
-  draw(g, size);
-  const t = new THREE.CanvasTexture(c);
+const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
+
+/**
+ * Texture précalculée au build (public/assets/textures/<name>.webp, généré par
+ * scripts/gen-textures.mjs). Un placeholder 2×2 est retourné immédiatement pour
+ * ne pas bloquer le boot ; le fichier statique est chargé en arrière-plan puis
+ * injecté dans la texture (mêmes paramètres : repeat, anisotropy, colorSpace).
+ * Si le chargement échoue (404, WebP non supporté…), on retombe sur le générateur
+ * canvas 2D d'origine (`draw`) : aucun changement de comportement visuel.
+ */
+function precalcTexture(
+  name: string,
+  size: number,
+  draw: (g: CanvasRenderingContext2D, s: number) => void,
+  opts: TexOpts,
+  placeholder: string,
+  srgb = true,
+): THREE.Texture {
+  const [c, g] = makeCanvas(2);
+  g.fillStyle = placeholder;
+  g.fillRect(0, 0, 2, 2);
+  const t: THREE.Texture = new THREE.CanvasTexture(c);
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.anisotropy = opts.aniso;
   if (opts.repeat) t.repeat.set(opts.repeat[0], opts.repeat[1]);
+  void new THREE.TextureLoader()
+    .loadAsync(`${TEX_ASSETS}${name}.webp`)
+    .then((loaded) => {
+      t.image = loaded.image;
+      t.needsUpdate = true;
+    })
+    .catch(() => {
+      const [c2, g2] = makeCanvas(size);
+      draw(g2, size);
+      t.image = c2;
+      t.needsUpdate = true;
+    });
   return t;
 }
 
 /** Plâtre 2048 : grain fin + grandes marbrures douces. */
-function plasterTexture(aniso: number, len: number): THREE.CanvasTexture {
-  return canvasTex(2048, (g, s) => {
+function plasterTexture(aniso: number, len: number): THREE.Texture {
+  return precalcTexture('plaster', 2048, (g, s) => {
     g.fillStyle = '#f2ede4';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 26000; i++) {
@@ -60,12 +90,12 @@ function plasterTexture(aniso: number, len: number): THREE.CanvasTexture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [Math.max(2, Math.round(len / 9)), 1] });
+  }, { aniso, repeat: [Math.max(2, Math.round(len / 9)), 1] }, '#f2ede4');
 }
 
 /** Enduit de plafond 2048. */
-function ceilingTexture(aniso: number, len: number): THREE.CanvasTexture {
-  return canvasTex(2048, (g, s) => {
+function ceilingTexture(aniso: number, len: number): THREE.Texture {
+  return precalcTexture('ceiling', 2048, (g, s) => {
     g.fillStyle = '#faf8f3';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 9000; i++) {
@@ -85,14 +115,14 @@ function ceilingTexture(aniso: number, len: number): THREE.CanvasTexture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [HALL_WIDTH / 6, Math.max(1, Math.round(len / 6))] });
+  }, { aniso, repeat: [HALL_WIDTH / 6, Math.max(1, Math.round(len / 6))] }, '#faf8f3');
 }
 
 /** Parquet chêne : teinte par lame, veines, joints de bout, micro-rayures. Tuile = 3,6 m. */
-function floorTextures(aniso: number, len: number, coarse: boolean): { map: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+function floorTextures(aniso: number, len: number, coarse: boolean): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const size = coarse ? 2048 : 4096;
   const rows = 18;
-  const map = canvasTex(size, (g, s) => {
+  const map = precalcTexture('floor', size, (g, s) => {
     const plankH = s / rows;
     for (let y = 0; y < rows; y++) {
       const luma = 0.52 + Math.random() * 0.2;
@@ -145,9 +175,9 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
         g.fill();
       }
     }
-  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] });
+  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#9a7b52');
 
-  const rough = canvasTex(1024, (g, s) => {
+  const rough = precalcTexture('floor-rough', 1024, (g, s) => {
     g.fillStyle = '#b8b8b8';
     g.fillRect(0, 0, s, s);
     const plankH = s / rows;
@@ -174,14 +204,13 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
         g.stroke();
       }
     }
-  }, { aniso: Math.min(aniso, 8), repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] });
-  rough.colorSpace = THREE.NoColorSpace;
+  }, { aniso: Math.min(aniso, 8), repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#b8b8b8', false);
   return { map, roughnessMap: rough };
 }
 
 /** Tapis tissé chaud (greige), liseré périphérique. Tuile = 2,2 m. */
-function runnerTexture(aniso: number, len: number): THREE.CanvasTexture {
-  return canvasTex(1024, (g, s) => {
+function runnerTexture(aniso: number, len: number): THREE.Texture {
+  return precalcTexture('runner', 1024, (g, s) => {
     g.fillStyle = '#cdc2ad';
     g.fillRect(0, 0, s, s);
     // trame croisée
@@ -200,7 +229,7 @@ function runnerTexture(aniso: number, len: number): THREE.CanvasTexture {
     g.strokeStyle = 'rgba(120,108,84,0.8)';
     g.lineWidth = 4;
     g.strokeRect(48, 48, s - 96, s - 96);
-  }, { aniso, repeat: [3.2 / 2.2, Math.max(2, Math.round((len - 1.5) / 2.2))] });
+  }, { aniso, repeat: [3.2 / 2.2, Math.max(2, Math.round((len - 1.5) / 2.2))] }, '#cdc2ad');
 }
 
 /** Plaque de salle en laiton, 320×80. */

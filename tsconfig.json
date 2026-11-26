@@ -12,7 +12,7 @@
     "isolatedModules": true,
     "useDefineForClassFields": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "@webgpu/types", "@vgpu/wgsl/wgsl-types"]
   },
   "include": ["src"]
 }

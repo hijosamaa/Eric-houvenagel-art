@@ -1,4 +1,79 @@
 import type { PlacedWork } from './gallery/layout';
+import type { Work } from './types';
+
+// ---------- Itération D : images responsives (WebP/AVIF + srcset + LQIP) ----------
+
+export type ImgFormat = 'avif' | 'webp' | 'jpeg';
+
+/** Détection canvas : le navigateur sait-il encoder/décoder ce mime ? */
+export function detectFormat(mime: string): boolean {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    return c.toDataURL(mime).startsWith(`data:${mime}`);
+  } catch {
+    return false;
+  }
+}
+
+export function webpSupported(): boolean {
+  return detectFormat('image/webp');
+}
+
+let preferredCache: ImgFormat | null = null;
+/** Format servi dans le srcset du DOM : AVIF > WebP > JPEG. */
+export function preferredFormat(): ImgFormat {
+  if (preferredCache) return preferredCache;
+  preferredCache = detectFormat('image/avif') ? 'avif' : detectFormat('image/webp') ? 'webp' : 'jpeg';
+  return preferredCache;
+}
+
+/** srcset "N w" pour un format donné, toutes largeurs disponibles. */
+export function srcsetFor(work: Work, format: ImgFormat): string {
+  return (work.images ?? [])
+    .filter((i) => i[format])
+    .map((i) => `${i[format]} ${i.width}w`)
+    .join(', ');
+}
+
+/** URL du meilleur candidat ≤ maxWidth pour un format (le plus grand sinon). */
+export function pickUrl(work: Work, format: ImgFormat, maxWidth = Infinity): string {
+  const all = (work.images ?? []).filter((i) => i[format]);
+  const cands = all.filter((i) => i.width <= maxWidth);
+  const pool = cands.length > 0 ? cands : all;
+  return pool.length > 0 ? pool[pool.length - 1][format] : '';
+}
+
+/** JPEG de secours pour l'attribut `src` (800w de préférence). */
+export function fallbackSrc(work: Work): string {
+  const imgs = work.images ?? [];
+  return imgs.find((i) => i.jpeg && i.width === 800)?.jpeg ?? imgs.find((i) => i.jpeg)?.jpeg ?? work.image ?? work.imageFull;
+}
+
+/** Pose srcset/sizes (format préféré) + LQIP en fond pendant le chargement. */
+export function setResponsiveImg(img: HTMLImageElement, work: Work, base: string, sizes: string): void {
+  img.sizes = sizes;
+  const ss = srcsetFor(work, preferredFormat());
+  if (ss) img.srcset = ss;
+  img.src = base + fallbackSrc(work);
+  if (work.lqip) {
+    img.style.backgroundImage = `url("${work.lqip}")`;
+    img.style.backgroundSize = 'cover';
+    img.style.backgroundPosition = 'center';
+    img.style.backgroundRepeat = 'no-repeat';
+    img.addEventListener(
+      'load',
+      () => {
+        img.style.backgroundImage = '';
+        img.style.backgroundSize = '';
+        img.style.backgroundPosition = '';
+        img.style.backgroundRepeat = '';
+      },
+      { once: true },
+    );
+  }
+}
+// -------------------------------------------------------------------------------
 
 export interface IndexGroup {
   name: string;
@@ -150,7 +225,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     lbId = p.work.id;
     zoom = 1;
     applyZoom();
-    lbImg.src = baseUrl + (p.work.imageFull || p.work.image);
+    setResponsiveImg(lbImg, p.work, baseUrl, '92vw');
     lbImg.alt = p.work.title;
     $('lb-title').textContent = p.work.title;
     const bits = [p.work.year > 0 ? String(p.work.year) : null, p.work.medium, p.work.dimensions || null]
@@ -226,9 +301,10 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
           card.className = 'index-card';
           card.type = 'button';
           const img = document.createElement('img');
-          img.src = base + p.work.image;
+          setResponsiveImg(img, p.work, base, '(max-width: 640px) 42vw, 240px');
           img.alt = p.work.title;
           img.loading = 'lazy';
+          img.decoding = 'async';
           const t = document.createElement('span');
           t.className = 'index-card-title';
           t.textContent = p.work.title;
@@ -257,7 +333,7 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     indexIsOpen: () => !indexOverlay.classList.contains('hidden'),
     openPanel(p) {
       const img = $('panel-img') as HTMLImageElement;
-      img.src = baseUrl + p.work.image;
+      setResponsiveImg(img, p.work, baseUrl, '(max-width: 720px) 88vw, 380px');
       img.alt = p.work.title;
       const idx = works.findIndex((w) => w.work.id === p.work.id);
       $('panel-num').textContent = works.length > 0 && idx >= 0 ? `Œuvre ${idx + 1} / ${works.length}` : '';
@@ -299,8 +375,11 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       const thumb = $('end-thumb') as HTMLImageElement;
       if (v && works.length > 0) {
         const last = works[works.length - 1].work;
-        thumb.src = baseUrl + (last.image || last.imageFull);
-        thumb.alt = last.title;
+        if (thumb.dataset.workId !== last.id) {
+          thumb.dataset.workId = last.id;
+          setResponsiveImg(thumb, last, baseUrl, '(max-width: 640px) 128px, 168px');
+          thumb.alt = last.title;
+        }
       }
     },
     setLoader(ratio, done) {

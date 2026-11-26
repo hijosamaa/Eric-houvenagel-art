@@ -4,6 +4,15 @@ export interface RoomDef {
   order: number;
 }
 
+/** Une variante responsive d'une œuvre : chemins relatifs (base = BASE_URL) par format. */
+export interface WorkImage {
+  width: number;
+  webp: string;
+  avif: string;
+  /** JPEG existant à cette largeur ('' si aucun) — sert de fallback `src`. */
+  jpeg: string;
+}
+
 export interface Work {
   id: string;
   title: string;
@@ -15,6 +24,10 @@ export interface Work {
   order: number;
   image: string;
   imageFull: string;
+  /** Variantes WebP/AVIF/JPEG triées par largeur croissante (itération D). */
+  images: WorkImage[];
+  /** Data-URL base64 d'un aperçu 16px flouté (LQIP) pour le fond pendant le chargement. */
+  lqip: string;
   ratio: number;
 }
 

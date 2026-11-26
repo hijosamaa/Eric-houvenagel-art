@@ -12,7 +12,7 @@ import { GalleryControls } from './gallery/controls';
 
 import { Minimap } from './gallery/minimap';
 
-import { initUI, type IndexGroup } from './ui';
+import { initUI, type IndexGroup, setResponsiveImg, pickUrl, webpSupported } from './ui';
 
 async function boot(): Promise<void> {
   const base = import.meta.env.BASE_URL;
@@ -41,6 +41,30 @@ async function boot(): Promise<void> {
       }
     }
   }
+  // Itération D — variantes images : la texture 3D (ensureTexture lit work.image)
+  // passe en WebP si le navigateur le supporte, sinon on garde le JPEG existant.
+  // 1ère œuvre en ~1200w (clampée sans upscale), les autres en 800w pour ne jamais
+  // augmenter le poids servi.
+  const webpOk = webpSupported();
+  data.works.forEach((w, i) => {
+    const targetW = i === 0 ? 1200 : 800;
+    const u = webpOk ? pickUrl(w, 'webp', targetW) : pickUrl(w, 'jpeg', 800);
+    if (u) w.image = u;
+  });
+  // Preload LCP : la 1ère œuvre en 1200w dès le fetch de works.json (même URL que
+  // la texture de la 1ère œuvre -> hit cache, pas de double téléchargement).
+  if (data.works.length > 0) {
+    const lcpUrl = base + data.works[0].image;
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'image';
+    link.href = lcpUrl;
+    link.fetchPriority = 'high';
+    document.head.appendChild(link);
+    const warm = new Image();
+    warm.src = lcpUrl;
+  }
+
   const brandName = document.getElementById('brand-name');
   if (brandName) brandName.textContent = data.artist;
   const introName = document.getElementById('intro-name');
@@ -55,8 +79,9 @@ async function boot(): Promise<void> {
   if (strip) {
     for (const w of data.works.slice(0, 3)) {
       const img = document.createElement('img');
-      img.src = base + w.image;
+      setResponsiveImg(img, w, base, '(max-width: 640px) 72px, 96px');
       img.alt = w.title;
+      img.decoding = 'async';
       strip.appendChild(img);
     }
   }
