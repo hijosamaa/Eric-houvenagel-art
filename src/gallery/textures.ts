@@ -22,6 +22,7 @@ import * as THREE from 'three';
  */
 
 export const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
+export const TEX_AI = `${import.meta.env.BASE_URL}tex/`;
 
 export interface TexOpts {
   repeat?: [number, number];
@@ -95,11 +96,11 @@ export function precalcTexture(
     // 1. override IA (variante réduite d'abord), 2. texture build-time, 3. fallback procédural runtime
     let img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined;
     img =
-      (await loadImageCapped(`${TEX_ASSETS}ai/${name}-${maxSize}.webp`, maxSize)) ??
-      (await loadImageCapped(`${TEX_ASSETS}ai/${name}.webp`, maxSize)) ??
-      // fallback JPEG universel (WebP peut être bloqué/non décodé par certains environnements)
-      (await loadImageCapped(`${TEX_ASSETS}ai/${name}-${maxSize}.jpg`, maxSize)) ??
-      (await loadImageCapped(`${TEX_ASSETS}ai/${name}.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_AI}${name}-${maxSize}.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_AI}${name}-1024.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_AI}${name}.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_AI}${name}-${maxSize}.webp`, maxSize)) ??
+      (await loadImageCapped(`${TEX_AI}${name}.webp`, maxSize)) ??
       (await loadImageCapped(`${TEX_ASSETS}${name}-${maxSize}.webp`, maxSize)) ??
       (await loadImageCapped(`${TEX_ASSETS}${name}.webp`, maxSize));
     if (!img) {
