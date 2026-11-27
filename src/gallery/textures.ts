@@ -30,47 +30,40 @@ export interface TexOpts {
   maxSize?: number;
 }
 
-/** Charge une image en blob et la décode, resizée à `maxSize` si nécessaire. */
-async function loadImageCapped(url: string, maxSize: number): Promise<ImageBitmap | HTMLImageElement | undefined> {
-  let blob: Blob;
+/**
+ * Charge une image via `<img src>` direct (mécanisme le plus compatible —
+ * certains environnements bloquent fetch→blob→createImageBitmap sur le WebP),
+ * resizée à `maxSize` via un canvas 2D si nécessaire.
+ */
+async function loadImageCapped(url: string, maxSize: number): Promise<HTMLImageElement | HTMLCanvasElement | undefined> {
+  let img: HTMLImageElement;
   try {
-    const res = await fetch(url);
-    if (!res.ok) return undefined;
-    blob = await res.blob();
-  } catch {
-    return undefined;
-  }
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bmp = await createImageBitmap(blob);
-      const side = Math.max(bmp.width, bmp.height);
-      if (side > maxSize) {
-        const s = maxSize / side;
-        return await createImageBitmap(blob, {
-          resizeWidth: Math.max(1, Math.round(bmp.width * s)),
-          resizeHeight: Math.max(1, Math.round(bmp.height * s)),
-          resizeQuality: 'high',
-        });
-      }
-      return bmp;
-    } catch {
-      // createImageBitmap indisponible ou a échoué : repli <img>
-    }
-  }
-  const objUrl = URL.createObjectURL(blob);
-  try {
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('decode failed'));
-      img.src = objUrl;
+    img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("decode failed: " + url));
+      el.src = url;
     });
   } catch {
     return undefined;
-  } finally {
-    URL.revokeObjectURL(objUrl);
   }
+  const side = Math.max(img.naturalWidth, img.naturalHeight);
+  if (side > maxSize && side > 0) {
+    const sc = maxSize / side;
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * sc));
+    c.height = Math.max(1, Math.round(img.naturalHeight * sc));
+    const g = c.getContext("2d");
+    if (g) {
+      g.imageSmoothingEnabled = true;
+      g.imageSmoothingQuality = "high";
+      g.drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    }
+  }
+  return img;
 }
+
 
 export function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
