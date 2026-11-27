@@ -48,11 +48,11 @@ export const WALL_FACE_Z = 0.045;
  */
 export const FRAME_METRICS = {
   /** Ordonnée locale de l'axe du luminaire (monde : p.y + 1,05 = 2,60 m). */
-  luminaireY: 1.05,
+  luminaireY: 0.94,
   /** Profondeur locale de l'ancre du spot (dans la salle, devant le parement). */
-  spotZ: 0.138,
+  spotZ: 0.3,
   /** Ordonnée locale du spot (sous le tube). */
-  spotY: 1.03,
+  spotY: 0.9,
   /** Ordonnée locale de la cible du spot : centre de la toile (éclairage uniforme). */
   targetY: 0.0,
   /** Luminance HDR de la lentille (MeshBasic HDR, avant tone mapping) — juste au-dessus du seuil de bloom. */
@@ -87,7 +87,7 @@ interface VariantSpec {
 const SPECS: Record<FrameVariant, VariantSpec> = {
   gilt: {
     frameWidth: 0.07,
-    matWidth: 0.055,
+    matWidth: 0.062,
     canvasZ: 0.06,
     matZ: 0.07,
     frameFrontZ: 0.1,
@@ -155,6 +155,7 @@ function materials(): NonNullable<typeof matCache> {
   // Variante B : bois teinté plus clair, avec verre.
   const frame = new THREE.MeshPhysicalMaterial({
     color: discrete ? 0x7a5c3a : 0x94764d,
+    side: THREE.DoubleSide,
     roughness: discrete ? 0.62 : 0.45,
     metalness: 0,
     clearcoat: discrete ? 0.08 : 0.15,
@@ -168,12 +169,15 @@ function materials(): NonNullable<typeof matCache> {
   const gilt = new THREE.MeshPhysicalMaterial({
     map: giltTexture(8),
     vertexColors: true,
-    color: 0xffffff,
-    roughness: 0.3,
-    metalness: 0.88,
-    clearcoat: 0.18,
+    // 0,78 plutôt que 0,88 : à 0,88 le métal ne renvoyait que l'environnement (IBL
+    // chaud et flou) et la dorure perdait sa couleur propre — elle lisait bronze/olive
+    // dès que l'angle changeait. À 0,78 il reste de l'or diffus.
+    color: 0xf4e6c8,
+    roughness: 0.34,
+    metalness: 0.78,
+    clearcoat: 0.16,
     clearcoatRoughness: 0.35,
-    envMapIntensity: 1.8,
+    envMapIntensity: 1.5,
     side: THREE.DoubleSide,
   });
   const mat = new THREE.MeshStandardMaterial({ color: 0xf6f2e9, roughness: 0.96, envMapIntensity: 0.2 });
@@ -250,6 +254,100 @@ function flatRing(
   return g;
 }
 
+/**
+ * Moulure du cadre : **profil balayé** autour de l'ouverture.
+ *
+ * Une caisse en `BoxGeometry` donnait une bande plate de 7 cm vue de face et rien du
+ * tout dès qu'on se déplaçait — le cadre ne « prenait » jamais la lumière. Ici, le
+ * profil est une suite d'anneaux concentriques reliés par des bandes : arête intérieure,
+ * crête, doucine, filet extérieur, retour contre le mur. Les facettes ont chacune une
+ * normale différente, donc la lumière les sépare exactement comme sur une moulure
+ * dorée réelle. Le tout est fusionné en une géométrie unique (1 draw call).
+ *
+ * `profile` : du bord de l'ouverture (w = 0) vers l'extérieur, en paires (largeur, z).
+ * Une répétition de `w` avec un `z` différent crée une face verticale (retour).
+ */
+function moldingProfile(
+  openingHalf: readonly [number, number],
+  profile: readonly { w: number; z: number; tone: number }[],
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const uv: number[] = [];
+  const [ox, oy] = openingHalf;
+  // Périmètre réel pour un `v` continu sur les quatre côtés (le brossage de la dorure
+  // suit le pourtour de la moulure, comme un or bruni au doigt).
+  const perim = 2 * ((ox + oy) * 2);
+
+  for (let i = 0; i < profile.length - 1; i++) {
+    const p = profile[i];
+    const q = profile[i + 1];
+    const iw = ox + p.w;
+    const ih = oy + p.w;
+    const ow = ox + q.w;
+    const oh = oy + q.w;
+    // 4 côtés, sens direct (CCW vu depuis +z) ; on empile les 6 sommets avec leur z.
+    const sides: [number, number, number][][] = [
+      // bas : (-iw,-ih) → (iw,-ih) → (ow,-oh) → (-ow,-oh)
+      [
+        [-iw, -ih, p.z],
+        [iw, -ih, p.z],
+        [ow, -oh, q.z],
+        [-ow, -oh, q.z],
+      ],
+      // droite
+      [
+        [iw, -ih, p.z],
+        [iw, ih, p.z],
+        [ow, oh, q.z],
+        [ow, -oh, q.z],
+      ],
+      // haut
+      [
+        [iw, ih, p.z],
+        [-iw, ih, p.z],
+        [-ow, oh, q.z],
+        [ow, oh, q.z],
+      ],
+      // gauche
+      [
+        [-iw, ih, p.z],
+        [-iw, -ih, p.z],
+        [-ow, -oh, q.z],
+        [-ow, oh, q.z],
+      ],
+    ];
+    // Échelle de dorure : tuile de **80 mm**. L'asset `gilt` est une feuille d'or
+    // froissée aux grandes stries obliques ; à 14 cm de tuile, une seule strie occupait
+    // toute la largeur de la moulure et le cadre lisait comme un ruban diagonal rayé.
+    // À 80 mm, les plis redeviennent des carrés de feuille (c'est la dimension réelle
+    // d'un carnet de dorure).
+    const u0 = p.w / 0.08;
+    const u1 = q.w / 0.08;
+    sides.forEach(([A, B, C, D], sideIdx) => {
+      const base = (sideIdx / 4) * (perim / 0.08);
+      const vA = base;
+      const vB = base + ((sideIdx % 2 === 0 ? ox * 2 : oy * 2) / 0.08);
+      const tri: [number, number, number, number][][] = [
+        [[A[0], A[1], A[2], vA], [B[0], B[1], B[2], vB], [C[0], C[1], C[2], vB]],
+        [[A[0], A[1], A[2], vA], [C[0], C[1], C[2], vB], [D[0], D[1], D[2], vA]],
+      ];
+      for (const t of tri) {
+        pos.push(t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2][0], t[2][1], t[2][2]);
+        uv.push(u0, t[0][3], u1, t[1][3], u1, t[2][3]);
+        for (let k = 0; k < 3; k++) col.push(p.tone, p.tone, p.tone);
+      }
+    });
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
 /** Biseau du passe-partout : anneau incliné entre (inner, zFront) et (inner−b, zBack). */
 function bevelRing(
   innerFront: readonly [number, number],
@@ -279,82 +377,6 @@ function bevelRing(
   g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
   g.computeVertexNormals();
   return g;
-}
-
-/** Anneau incliné teinté (doucine dorée) — fusionnable avec les montants (attribut color). */
-function coveRing(
-  innerFront: readonly [number, number],
-  drop: number,
-  zFront: number,
-): THREE.BufferGeometry {
-  const g = bevelRing(
-    innerFront,
-    [innerFront[0] + drop, innerFront[1] + drop],
-    zFront,
-    zFront - drop,
-  );
-  return paint(g, 0.6, 0.5, 0.36); // doucine plus sombre → le profil accroche la lumière
-}
-
-/** Teinte uniforme d'une géométrie (attribut `color`, pour les matériaux vertexColors). */
-function paint(geo: THREE.BufferGeometry, r: number, g: number, b: number): THREE.BufferGeometry {
-  const n = geo.attributes.position.count;
-  const col = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    col[i * 3] = r;
-    col[i * 3 + 1] = g;
-    col[i * 3 + 2] = b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  return geo;
-}
-
-/** 4 montants de moulure (boîtes) fusionnés en une seule géométrie. */
-function frameBars(
-  openingHalf: readonly [number, number],
-  width: number,
-  depth: number,
-  zCenter: number,
-  stepWidth: number,
-  stepDepth: number,
-): THREE.BufferGeometry {
-  const [ox, oy] = openingHalf;
-  const parts: THREE.BufferGeometry[] = [];
-  // les anneaux (doucine) sont non indexés → on convertit les boîtes pour fusionner
-  const push = (g: THREE.BufferGeometry): void => {
-    const ni = g.index ? g.toNonIndexed() : g;
-    if (ni !== g) g.dispose();
-    parts.push(ni);
-  };
-  // haut / bas : pleine largeur extérieure
-  for (const sy of [-1, 1]) {
-    const g = new THREE.BoxGeometry((ox + width) * 2, width, depth);
-    g.translate(0, sy * (oy + width / 2), zCenter);
-    push(g);
-  }
-  // gauche / droite : hauteur de l'ouverture seulement (pas de recouvrement aux angles)
-  for (const sx of [-1, 1]) {
-    const g = new THREE.BoxGeometry(width, oy * 2, depth);
-    g.translate(sx * (ox + width / 2), 0, zCenter);
-    push(g);
-  }
-  if (stepWidth > 0) {
-    // gradin intérieur (variante muséale) : 2e plan de moulure, en saillie
-    for (const sy of [-1, 1]) {
-      const g = new THREE.BoxGeometry((ox + stepWidth) * 2, stepWidth, depth * 0.6);
-      g.translate(0, sy * (oy + stepWidth / 2), zCenter + depth / 2 + stepDepth / 2 - depth * 0.2);
-      push(g);
-    }
-    for (const sx of [-1, 1]) {
-      const g = new THREE.BoxGeometry(stepWidth, oy * 2, depth * 0.6);
-      g.translate(sx * (ox + stepWidth / 2), 0, zCenter + depth / 2 + stepDepth / 2 - depth * 0.2);
-      push(g);
-    }
-  }
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  if (!merged) throw new Error('frames: fusion des montants impossible');
-  return paint(merged, 1, 1, 1);
 }
 
 /** Tube Ø 22 mm + 2 bras plats, fusionnés (1 draw call). */
@@ -428,21 +450,25 @@ export function buildFrame(
   const canvasHalfY = h / 2;
   const matOuterHalf: [number, number] = [canvasHalfX + spec.matWidth, canvasHalfY + spec.matWidth];
   const openingHalf: [number, number] = [matOuterHalf[0] - MAT_TUCK, matOuterHalf[1] - MAT_TUCK];
-  const depth = spec.frameFrontZ - FRAME_BACK_Z;
 
   const cacheKey = `${variant}:${w.toFixed(3)}x${h.toFixed(3)}`;
   let cached = geoCache.get(cacheKey);
   if (!cached) {
-    // caisse (montants, teintés blanc) + doucine (anneau incliné assombri) fusionnées :
-    // 1 draw call, le profil varie en normale donc en lumière.
-    const bars = frameBars(openingHalf, spec.frameWidth, depth, FRAME_BACK_Z + depth / 2, spec.stepWidth, spec.stepDepth);
-    const frameParts: THREE.BufferGeometry[] = [bars];
-    if (spec.cove > 0) {
-      frameParts.push(coveRing(openingHalf, spec.cove, spec.frameFrontZ));
-    }
-    const frameGeo = mergeGeometries(frameParts, false);
-    for (const p of frameParts) p.dispose();
-    if (!frameGeo) throw new Error('frames: fusion du cadre impossible');
+    // Profil de moulure : arête intérieure → crête → doucine → filet → retour au mur.
+    // `tone` module la couleur de sommet (la crête s'allume, la doucine se creuse).
+    const trimZ = spec.frameFrontZ;
+    const fw = spec.frameWidth;
+    const profile: { w: number; z: number; tone: number }[] = [
+      { w: 0, z: spec.matZ + 0.002, tone: 0.86 },
+      { w: fw * 0.09, z: spec.matZ + 0.016, tone: 0.97 },
+      { w: fw * 0.2, z: trimZ - 0.002, tone: 1.0 },
+      { w: fw * 0.38, z: trimZ - 0.009, tone: 0.82 },
+      { w: fw * 0.66, z: trimZ - 0.013, tone: 0.9 },
+      { w: fw * 0.9, z: trimZ - 0.017, tone: 0.94 },
+      { w: fw, z: trimZ - 0.02, tone: 0.98 },
+      { w: fw, z: FRAME_BACK_Z, tone: 0.72 },
+    ];
+    const frameGeo = moldingProfile(openingHalf, profile);
 
     // Passe-partout : anneau plat + biseau de fenêtre (aucun plan plein → pas de z-fighting).
     const matInnerHalf: [number, number] = [canvasHalfX - MAT_OVERLAP, canvasHalfY - MAT_OVERLAP];
@@ -488,7 +514,7 @@ export function buildFrame(
   let luminaire: THREE.Object3D | null = null;
   if (spec.luminaire && cached.lum && cached.lens) {
     const y = FRAME_METRICS.luminaireY;
-    const z = 0.14;
+    const z = 0.3;
     const body = new THREE.Mesh(cached.lum, m.brass);
     body.castShadow = opts.shadows;
     body.name = 'luminaire';

@@ -19,6 +19,8 @@ import { HALL_WIDTH, HALL_HEIGHT, Z_START, hallBounds, portalPositions, type Lay
 
 import { furnitureColliders } from './furniture';
 
+import { plantColliders } from './plants';
+
 type RapierModule = typeof import('@dimforge/rapier3d-compat');
 type RWorld = InstanceType<RapierModule['World']>;
 type RRigidBody = InstanceType<RapierModule['RigidBody']>;
@@ -77,6 +79,10 @@ class RapierWorld implements PhysicsWorld {
     // mobilier (bancs, socles, plantes, console) : positions calculées UNE fois dans
     // furniture.ts et partagées avec scene.ts — la physique ne peut pas diverger du visuel.
     for (const c of furnitureColliders(layout)) {
+      fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
+    }
+    // plantes : même source de positions que la végétation de scene.ts
+    for (const c of plantColliders(layout)) {
       fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
     }
 

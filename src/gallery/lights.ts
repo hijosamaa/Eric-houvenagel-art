@@ -34,55 +34,78 @@ export const SPOT_SHADOW_LAYER = 2;
 
 /** Hémisphérique « jour » : ciel bleuté doux, sol chaud — lumière naturelle ambiante. */
 export const HEMI = {
-  sky: 0xdfeaf6,
-  ground: 0xcbb99b,
-  intensity: 0.5,
-  /** Repli mobile (pas de RectAreaLight) : jamais sous le desktop. */
-  coarseIntensity: 0.6,
+  sky: 0xdae7f5,
+  ground: 0xe8e1d3,
+  intensity: 0.26,
+  /** Repli mobile (pas de RectAreaLight) : un peu plus haut pour compenser. */
+  coarseIntensity: 0.46,
 } as const;
 
 /** Soleil « plein jour » : blanc chaud, assez puissant pour la trame de la verrière. */
 export const SUN = {
-  color: 0xfff2e2,
-  intensity: 2.6,
-  /** Élévation ≈ 77°, décalage de la tache ≈ 0,6 m pour que la trame « tombe » dans le champ. */
-  position: { x: 1.6, y: 12, z: -2.2 },
+  color: 0xfff0da,
+  intensity: 2.0,
+  /**
+   * Élévation ≈ 50° : la tache de soleil s'allonge et vient mourir au pied du mur des
+   * toiles sans l'atteindre (mise en lumière rasante, et conservation : une aquarelle
+   * ne reçoit pas de soleil direct). À 77° la tache tombait à la verticale sous la
+   * verrière (aucune trame lisible) ; à 37° elle frappait les œuvres.
+   */
+  position: { x: 3.1, y: 12, z: -8.6 },
   shadow: {
     /** 3072 → 0,52 cm/texel sur une fenêtre ±8 × ±11 m. */
     mapSize: 3072,
     mapSizeCoarse: 2048,
-    halfX: 8,
-    halfZ: 11,
+    /**
+     * Demi-fenêtre en **espace lumière** : avec un soleil oblique, l'axe « up » de la
+     * caméra d'ombre n'est plus l'axe Z monde, donc une fenêtre de 11 m ne couvrait que
+     * ~14 m de sol — les ombres s'arrêtaient net au milieu du hall.
+     */
+    halfX: 9,
+    halfZ: 21,
     /** Quantification de la fenêtre : supprime le shadow swimming (P1-2). */
     quantum: 0.5,
     bias: -0.0002,
     normalBias: 0.008,
+    /**
+     * Rayon de pénombre en texels (PCFShadowMap). 3072 texels sur ±8 m → 5,2 mm/texel :
+     * radius 14 ≈ 7 cm de pénombre, ce qui est l'ordre de grandeur réel sous une verrière
+     * de 5 m de large (la source a un diamètre angulaire énorme).
+     */
+    radius: 26,
   },
 } as const;
 
 /** Ciel diffus de la trémie (substitut de ciel, sans ombre ni CSM). Desktop uniquement. */
 export const SKY_FILL = {
-  color: 0xf2f7fd,
-  intensity: 1.3,
-  width: 5.04,
-  height: 23.97,
-  y: 3.3,
+  color: 0xeef5fd,
+  intensity: 0.55,
+  width: 5.4,
+  height: 26,
+  y: 3.24,
   /** `false` = pas de RectAreaLight du tout (mobile, ou si la mesure impose de couper). */
   enabled: true,
 } as const;
 
 /** Spots « tableau » : un par œuvre, dans le luminaire (P0-2 / P1-5). */
 export const TABLE_SPOT = {
-  color: 0xffe9c8,
-  /** Candélas (three utilise l'unité physique). 1,8 cd à ~1 m → irradiance ≈ 1,8 : lavage doux, pas d'aplat. */
-  intensity: 1.8,
-  distance: 4,
-  /** Cône moyen + pénombre large : la toile est couverte, le mur autour reste en pénombre (pas de boule). */
-  angle: 1.0,
-  penumbra: 0.7,
+  color: 0xffe3bb,
+  /**
+   * Candélas. L'appareil est à 1,05 m de la toile : 1,35 cd / 1,05² ≈ 1,2 d'irradiance.
+   * L'ancienne valeur (1,8) avec un appareil à 9 cm du mur brûlait le mur AU-DESSUS du
+   * cadre (la tache blanche visible sur les captures) au lieu de laver la toile.
+   */
+  intensity: 1.15,
+  distance: 6,
+  /**
+   * Cône calculé pour couvrir la toile : demi-angle ≈ atan(0,9 / 1,05) ≈ 0,71 rad.
+   * Pénombre maximale : aucun bord de cône visible sur un mur clair.
+   */
+  angle: 0.68,
+  penumbra: 1.0,
   decay: 2.0,
   /** Le survol est porté par la lumière, plus par l'émissif de la toile (P0-3). */
-  hoverBoost: 0.4,
+  hoverBoost: 0.5,
   /** Hystérésis d'affectation : un spot installé ne bouge pas pour moins de 1,2 m. */
   hysteresis: 1.2,
   /** Fondu d'allumage / extinction, en secondes (800 ms : aucun clignotement visible). */
@@ -92,7 +115,7 @@ export const TABLE_SPOT = {
    * brille moins (jamais à 0) → la lumière glisse d'un tableau à l'autre au lieu
    * de sauter (le « tout ou rien » à 1 spot mobile était illisible).
    */
-  distFadeMin: 0.35,
+  distFadeMin: 0.45,
   distFadeRange: 7,
   shadowMapSize: 512,
   shadowNear: 0.05,

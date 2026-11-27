@@ -2,17 +2,21 @@ import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-import { HALL_WIDTH, hallBounds, portalPositions, type Layout } from './layout';
+import { HALL_WIDTH, hallBounds, type Layout } from './layout';
 
-import { beamTexture } from './textures';
+import { oakTexture } from './textures';
+
+import { timberGeometry, timberX, timberY, prismY } from './wood';
 
 /**
  * Mobilier de la galerie — module UNIQUE consommé par `scene.ts` (meshes) et
  * `physics.ts` (colliders) : les positions sont calculées une seule fois ici,
  * il est donc impossible que la physique diverge du visuel.
  *
- * Tout est fusionné par matériau : bancs, socles, plantes, console = ~8 draw calls
- * pour tout le hall, quoi qu'il contienne.
+ * Tout est fusionné par matériau : bancs, socles et console = 4 draw calls pour
+ * tout le hall, quoi qu'il contienne. Les pièces de bois passent par `wood.ts`
+ * (sections chanfreinées, grain le long du fil) : une arête vive donnait des
+ * meubles en carton.
  */
 
 export interface ColliderBox {
@@ -25,7 +29,7 @@ export interface ColliderBox {
 }
 
 /** Bancs le long du mur droit (les œuvres sont au mur gauche). */
-export const BENCH_X = HALL_WIDTH / 2 - 0.38;
+export const BENCH_X = HALL_WIDTH / 2 - 0.42;
 /** Socles au centre-droit du hall, un par salle. */
 export const PEDESTAL_X = 0.9;
 
@@ -42,160 +46,240 @@ export function pedestalPositions(layout: Layout): number[] {
     .map((z) => (z.zMin + z.zMax) / 2);
 }
 
-export function plantPositions(layout: Layout): { x: number; z: number }[] {
-  const { zMin, zMax } = hallBounds(layout);
-  const out: { x: number; z: number }[] = [];
-  // une plante de part et d'autre de chaque portail (mêmes z que scene.ts / physics.ts)
-  for (const portal of portalPositions(layout)) {
-    out.push({ x: HALL_WIDTH / 2 - 0.55, z: portal.z + 1.4 });
-    out.push({ x: HALL_WIDTH / 2 - 0.55, z: portal.z - 1.4 });
-  }
-  // et aux deux extrémités du hall, côté mur droit
-  out.push({ x: HALL_WIDTH / 2 - 0.55, z: zMin + 1.8 });
-  out.push({ x: HALL_WIDTH / 2 - 0.55, z: zMax - 1.8 });
-  return out;
-}
-
 /** Console + vase contre le mur du fond (zMin), centrée. */
 export function consoleSpec(layout: Layout): { x: number; z: number } {
   const { zMin } = hallBounds(layout);
-  return { x: 0, z: zMin + 0.32 };
+  return { x: 0, z: zMin + 0.34 };
 }
 
 /** Tous les colliders du mobilier, dans le repère monde (pour Rapier). */
 export function furnitureColliders(layout: Layout): ColliderBox[] {
   const out: ColliderBox[] = [];
   for (const bz of benchPositions(layout)) {
-    out.push({ hx: 0.28, hy: 0.05, hz: 0.95, x: BENCH_X, y: 0.46, z: bz });
+    out.push({ hx: 0.27, hy: 0.24, hz: 0.97, x: BENCH_X, y: 0.24, z: bz });
   }
   for (const pz of pedestalPositions(layout)) {
-    out.push({ hx: 0.21, hy: 0.48, hz: 0.21, x: PEDESTAL_X, y: 0.48, z: pz });
-  }
-  for (const p of plantPositions(layout)) {
-    out.push({ hx: 0.19, hy: 0.65, hz: 0.19, x: p.x, y: 0.65, z: p.z });
+    out.push({ hx: 0.22, hy: 0.47, hz: 0.22, x: PEDESTAL_X, y: 0.47, z: pz });
   }
   const c = consoleSpec(layout);
-  out.push({ hx: 0.85, hy: 0.46, hz: 0.3, x: c.x, y: 0.46, z: c.z });
+  out.push({ hx: 0.9, hy: 0.45, hz: 0.3, x: c.x, y: 0.45, z: c.z });
   return out;
 }
 
 /* ------------------------------- géométries ------------------------------- */
 
-/** Sphère de feuillage irrégulière (icosaèdre subdivisé + déplacement de sommets). */
-function foliageBlob(r: number, seed: number): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(r, 2);
-  const pos = g.attributes.position as THREE.BufferAttribute;
-  let s = seed * 2654435761;
-  const rnd = (): number => {
-    s = (s * 16807) % 2147483647;
-    return s / 2147483647;
-  };
-  for (let i = 0; i < pos.count; i++) {
-    const k = 1 + (rnd() - 0.5) * 0.34;
-    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.9, pos.getZ(i) * k);
-  }
-  g.computeVertexNormals();
+function lathe(points: [number, number][], segments = 30): THREE.LatheGeometry {
+  return new THREE.LatheGeometry(
+    points.map(([x, y]) => new THREE.Vector2(x, y)),
+    segments,
+  );
+}
+
+/** Vase en grès : panse basse, col resserré. */
+function vesselGeometry(scale = 1): THREE.BufferGeometry {
+  const pts: [number, number][] = [
+    [0.001, 0],
+    [0.09, 0],
+    [0.115, 0.012],
+    [0.145, 0.06],
+    [0.152, 0.115],
+    [0.138, 0.17],
+    [0.105, 0.205],
+    [0.093, 0.225],
+    [0.1, 0.24],
+    [0.001, 0.24],
+  ];
+  const g = lathe(pts, 34);
+  g.scale(scale, scale, scale);
   return g;
 }
 
-function latheVase(): THREE.BufferGeometry {
-  const pts: THREE.Vector2[] = [
-    [0.001, 0], [0.15, 0], [0.185, 0.04], [0.195, 0.16], [0.15, 0.28],
-    [0.115, 0.34], [0.125, 0.40], [0.16, 0.44], [0.165, 0.46], [0.001, 0.46],
-  ].map(([x, y]) => new THREE.Vector2(x, y));
-  return new THREE.LatheGeometry(pts, 28);
+/** Coupe basse en céramique (sur la console). */
+function bowlGeometry(scale = 1): THREE.BufferGeometry {
+  const pts: [number, number][] = [
+    [0.001, 0],
+    [0.075, 0],
+    [0.115, 0.03],
+    [0.145, 0.075],
+    [0.15, 0.09],
+    [0.138, 0.092],
+    [0.12, 0.062],
+    [0.09, 0.022],
+    [0.001, 0.02],
+  ];
+  const g = lathe(pts, 30);
+  g.scale(scale, scale, scale);
+  return g;
 }
 
 export interface FurnitureMaterials {
-  wood: THREE.MeshStandardMaterial;
-  steel: THREE.MeshStandardMaterial;
+  oak: THREE.MeshStandardMaterial;
   lacquer: THREE.MeshPhysicalMaterial;
-  pot: THREE.MeshStandardMaterial;
-  leaf: THREE.MeshStandardMaterial;
   ceramic: THREE.MeshPhysicalMaterial;
+  paper: THREE.MeshStandardMaterial;
+  bronze: THREE.MeshStandardMaterial;
 }
 
 export function furnitureMaterials(aniso: number, maxSize = 2048): FurnitureMaterials {
-  // chêne clair pour le mobilier (la texture 'beam' de base est sombre : on éclaircit
-  // par la couleur du matériau ; une version IA dans ai/beam.webp remplacera les deux)
-  const woodMap = beamTexture(aniso, 2.2, '#8a6a48', maxSize);
+  const oakMap = oakTexture(aniso, 1, maxSize);
   return {
-    wood: new THREE.MeshStandardMaterial({ map: woodMap, color: 0xe9d3ae, roughness: 0.5, metalness: 0.0, envMapIntensity: 0.5 }),
-    steel: new THREE.MeshStandardMaterial({ color: 0x2c2925, roughness: 0.42, metalness: 0.85, envMapIntensity: 0.9 }),
-    lacquer: new THREE.MeshPhysicalMaterial({
-      color: 0xf4f2ee, roughness: 0.25, metalness: 0, clearcoat: 1.0, clearcoatRoughness: 0.12, envMapIntensity: 0.7,
+    oak: new THREE.MeshStandardMaterial({
+      map: oakMap,
+      color: 0xffffff,
+      roughness: 0.52,
+      metalness: 0,
+      envMapIntensity: 0.45,
     }),
-    pot: new THREE.MeshStandardMaterial({ color: 0x9a5b40, roughness: 0.9, envMapIntensity: 0.15 }),
-    leaf: new THREE.MeshStandardMaterial({ color: 0x3a4a2e, roughness: 0.95, envMapIntensity: 0.1, flatShading: true }),
-    ceramic: new THREE.MeshPhysicalMaterial({ color: 0x2f2a26, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 0.6 }),
+    lacquer: new THREE.MeshPhysicalMaterial({
+      color: 0xe9e5dd,
+      roughness: 0.34,
+      metalness: 0,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.28,
+      envMapIntensity: 0.55,
+    }),
+    ceramic: new THREE.MeshPhysicalMaterial({
+      color: 0x55504a,
+      roughness: 0.36,
+      clearcoat: 0.7,
+      clearcoatRoughness: 0.22,
+      envMapIntensity: 0.7,
+    }),
+    paper: new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 0.9, envMapIntensity: 0.15 }),
+    bronze: new THREE.MeshStandardMaterial({
+      color: 0x8a7350,
+      roughness: 0.35,
+      metalness: 0.85,
+      envMapIntensity: 1.0,
+    }),
   };
 }
 
-/** Construit tous les meshes du mobilier (fusionnés par matériau) dans un seul Group. */
+/**
+ * Construit tous les meshes du mobilier (fusionnés par matériau) dans un seul Group.
+ * `colliders` documente les volumes bloquants pour Rapier (voir furnitureColliders).
+ */
 export function buildFurniture(layout: Layout, mats: FurnitureMaterials, shadows: boolean): THREE.Group {
   const group = new THREE.Group();
-  const wood: THREE.BufferGeometry[] = [];
-  const steel: THREE.BufferGeometry[] = [];
+  group.name = 'mobilier';
+  const oak: THREE.BufferGeometry[] = [];
   const lacquer: THREE.BufferGeometry[] = [];
-  const pot: THREE.BufferGeometry[] = [];
-  const leaf: THREE.BufferGeometry[] = [];
   const ceramic: THREE.BufferGeometry[] = [];
+  const paper: THREE.BufferGeometry[] = [];
+  const bronze: THREE.BufferGeometry[] = [];
 
-  const put = (g: THREE.BufferGeometry, arr: THREE.BufferGeometry[], x: number, y: number, z: number, ry = 0): void => {
+  const push = (
+    src: THREE.BufferGeometry,
+    arr: THREE.BufferGeometry[],
+    x: number,
+    y: number,
+    z: number,
+    ry = 0,
+  ): void => {
+    // toutes les pièces fusionnées doivent avoir le même jeu d'attributs : on
+    // dé-indexe systématiquement (les primitives three sont indexées, wood.ts non)
+    const g = src.index ? src.toNonIndexed() : src;
+    if (g !== src) src.dispose();
     if (ry) g.rotateY(ry);
     g.translate(x, y, z);
     arr.push(g);
   };
 
-  // ---- bancs : assise lattée (3 lattes) + 4 poteaux acier fins (pas de panneau latéral) ----
+  // ---- bancs : plateau massif chanfreiné, joues en retrait sur pieds engagés ----
+  // Un banc de galerie doit se lire d'un coup : une ligne horizontale franche, deux
+  // appuis fins, une ligne d'ombre au sol. Les joues s'arrêtent à 6 cm du sol sur un
+  // patin en retrait — c'est ce détail qui évite l'effet « table de pique-nique ».
+  const benchL = 1.86;
+  const benchD = 0.44;
+  const benchH = 0.44;
+  const topT = 0.045;
   for (const bz of benchPositions(layout)) {
-    for (let k = -1; k <= 1; k++) {
-      put(new THREE.BoxGeometry(0.56, 0.024, 0.56), wood, BENCH_X, 0.475, bz + k * 0.62);
+    // plateau
+    push(
+      timberGeometry({ length: benchL, width: benchD, height: topT, chamfer: 0.007, tileV: 1.9 }),
+      oak,
+      BENCH_X,
+      benchH - topT / 2,
+      bz,
+    );
+    for (const sz of [-1, 1]) {
+      const zEnd = bz + sz * (benchL / 2 - 0.2);
+      // joue
+      push(
+        timberY({ length: benchH - topT - 0.07, width: benchD - 0.08, height: 0.048, chamfer: 0.005, tileV: 1.2 }),
+        oak,
+        BENCH_X,
+        0.07,
+        zEnd,
+      );
+      // patin en retrait
+      push(
+        timberGeometry({ length: 0.05, width: benchD - 0.12, height: 0.07, chamfer: 0.005, tileV: 1.2 }),
+        oak,
+        BENCH_X,
+        0.035,
+        zEnd,
+      );
     }
-    for (const [px, pz] of [[-0.24, -0.7], [0.24, -0.7], [-0.24, 0.7], [0.24, 0.7]] as const) {
-      put(new THREE.BoxGeometry(0.05, 0.46, 0.05), steel, BENCH_X + px, 0.23, bz + pz);
-    }
+    // entretoise basse
+    push(
+      timberGeometry({ length: benchL - 0.46, width: 0.04, height: 0.055, chamfer: 0.005, tileV: 1.4 }),
+      oak,
+      BENCH_X,
+      0.19,
+      bz,
+    );
   }
 
-  // ---- socles laqués, un par salle ----
-  for (const pz of pedestalPositions(layout)) {
-    put(new THREE.BoxGeometry(0.42, 0.96, 0.42), lacquer, PEDESTAL_X, 0.48, pz);
-    put(new THREE.BoxGeometry(0.48, 0.03, 0.48), lacquer, PEDESTAL_X, 0.975, pz); // chapeau
-  }
+  // ---- socles laqués : fût sur socle en retrait (effet « posé ») + objet ----
+  pedestalPositions(layout).forEach((pz, i) => {
+    // socle en retrait (2 cm) → ligne d'ombre au sol
+    push(new THREE.BoxGeometry(0.35, 0.032, 0.35), lacquer, PEDESTAL_X, 0.016, pz);
+    // fût
+    push(prismY(0.4, 0.4, 0.875, 0.005), lacquer, PEDESTAL_X, 0.032, pz);
+    // objet exposé (vase ou coupe, alterné)
+    const obj = i % 2 === 0 ? vesselGeometry(1.25) : bowlGeometry(1.1);
+    push(obj, ceramic, PEDESTAL_X, 0.907, pz, i * 1.1);
+  });
 
-  // ---- plantes en pot (topiaire) ----
-  let seed = 7;
-  for (const p of plantPositions(layout)) {
-    const potG = new THREE.CylinderGeometry(0.17, 0.135, 0.34, 20);
-    const rim = new THREE.TorusGeometry(0.168, 0.022, 10, 24);
-    rim.rotateX(Math.PI / 2);
-    rim.translate(0, 0.34, 0);
-    const trunk = new THREE.CylinderGeometry(0.018, 0.03, 0.55, 8);
-    trunk.translate(0, 0.6, 0);
-    const b1 = foliageBlob(0.26, seed++);
-    b1.translate(0, 1.02, 0);
-    const b2 = foliageBlob(0.19, seed++);
-    b2.translate(0.12, 1.22, 0.06);
-    const b3 = foliageBlob(0.15, seed++);
-    b3.translate(-0.1, 1.16, -0.1);
-    put(potG, pot, p.x, 0.17, p.z);
-    put(rim, pot, p.x, 0.17, p.z);
-    put(trunk, pot, p.x, 0.17, p.z); // même matériau terre cuite sombre ok pour le tronc
-    put(b1, leaf, p.x, 0, p.z);
-    put(b2, leaf, p.x, 0, p.z);
-    put(b3, leaf, p.x, 0, p.z);
-  }
-
-  // ---- console + vase au mur du fond ----
+  // ---- console du mur du fond : plateau, pieds fuselés, livres, coupe ----
   const c = consoleSpec(layout);
-  put(new THREE.BoxGeometry(1.7, 0.045, 0.55), wood, c.x, 0.88, c.z);
-  put(new THREE.BoxGeometry(1.58, 0.07, 0.48), wood, c.x, 0.82, c.z);
-  for (const [lx, lz] of [[-0.78, -0.22], [0.78, -0.22], [-0.78, 0.22], [0.78, 0.22]] as const) {
-    put(new THREE.BoxGeometry(0.05, 0.86, 0.05), wood, c.x + lx, 0.43, c.z + lz);
+  const topW = 1.74;
+  const topD = 0.44;
+  push(
+    timberX({ length: topW, width: topD, height: 0.048, chamfer: 0.006, tileV: 1.7 }),
+    oak,
+    c.x,
+    0.86,
+    c.z,
+  );
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = timberY({ length: 0.836, width: 0.042, height: 0.042, chamfer: 0.005, tileV: 1.7 });
+      leg.scale(1, 1, 1);
+      push(leg, oak, c.x + sx * (topW / 2 - 0.1), 0, c.z + sz * (topD / 2 - 0.09));
+    }
   }
-  const vase = latheVase();
-  vase.translate(0.35, 0.9, 0);
-  put(vase, ceramic, c.x, 0, c.z);
+  push(
+    timberX({ length: topW - 0.24, width: 0.03, height: 0.05, chamfer: 0.004, tileV: 1.5 }),
+    oak,
+    c.x,
+    0.2,
+    c.z,
+  );
+  // pile de livres
+  let y = 0.884;
+  const books: { w: number; d: number; h: number; r: number }[] = [
+    { w: 0.3, d: 0.22, h: 0.045, r: 0.06 },
+    { w: 0.27, d: 0.2, h: 0.038, r: -0.04 },
+    { w: 0.24, d: 0.18, h: 0.03, r: 0.11 },
+  ];
+  for (const b of books) {
+    const g = new THREE.BoxGeometry(b.w, b.h, b.d);
+    push(g, paper, c.x - 0.44, y + b.h / 2, c.z + 0.01, b.r);
+    y += b.h;
+  }
+  push(bowlGeometry(1.0), ceramic, c.x + 0.16, 0.884, c.z - 0.02, 0.6);
 
   const add = (parts: THREE.BufferGeometry[], mat: THREE.Material, name: string): void => {
     if (parts.length === 0) return;
@@ -208,11 +292,11 @@ export function buildFurniture(layout: Layout, mats: FurnitureMaterials, shadows
     m.receiveShadow = shadows;
     group.add(m);
   };
-  add(wood, mats.wood, 'mobilier-bois');
-  add(steel, mats.steel, 'mobilier-acier');
+  add(oak, mats.oak, 'mobilier-chene');
   add(lacquer, mats.lacquer, 'socles');
-  add(pot, mats.pot, 'pots');
-  add(leaf, mats.leaf, 'feuillage');
-  add(ceramic, mats.ceramic, 'vase');
+  add(ceramic, mats.ceramic, 'ceramiques');
+  add(paper, mats.paper, 'livres');
+  add(bronze, mats.bronze, 'bronze');
+
   return group;
 }

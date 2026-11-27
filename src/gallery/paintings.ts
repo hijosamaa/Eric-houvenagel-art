@@ -64,22 +64,28 @@ const ATLAS_COLS = 8;
 let atlasCell = ATLAS_SIZE / ATLAS_COLS;
 
 function drawLabel(g: CanvasRenderingContext2D, work: Work, x: number, y: number, s: number): void {
-  g.fillStyle = '#ffffff';
+  // Cartel : carte crème, texte encre. Une carte blanche en `MeshBasicMaterial`
+  // s'allumait comme une boîte à lumière ; ici la carte est éclairée comme le mur.
+  g.fillStyle = '#f8f4ec';
   g.fillRect(x, y, s, s);
-  g.strokeStyle = '#d8d2c4';
-  g.lineWidth = 3;
-  g.strokeRect(x + 4, y + 4, s - 8, s - 8);
-  g.fillStyle = '#20242a';
-  g.font = `600 ${Math.round(s * 0.095)}px Georgia, serif`;
+  g.fillStyle = '#eee8dc';
+  g.fillRect(x, y, s, s * 0.012);
+  g.strokeStyle = 'rgba(140,130,112,0.55)';
+  g.lineWidth = 2;
+  g.strokeRect(x + 2, y + 2, s - 4, s - 4);
+  g.fillStyle = '#1b1f24';
+  g.font = `600 ${Math.round(s * 0.12)}px Georgia, serif`;
   g.textAlign = 'left';
   g.textBaseline = 'alphabetic';
-  g.fillText(truncate(work.title, 20), x + s * 0.067, y + s * 0.36, s * 0.86);
-  g.fillStyle = '#6f6a60';
-  g.font = `${Math.round(s * 0.067)}px Inter, system-ui, sans-serif`;
+  g.fillText(truncate(work.title, 22), x + s * 0.075, y + s * 0.37, s * 0.85);
+  g.fillStyle = '#4d4a43';
+  g.font = `${Math.round(s * 0.082)}px Inter, system-ui, sans-serif`;
   const line2 = [work.year > 0 ? String(work.year) : null, work.medium].filter(Boolean).join(', ');
-  g.fillText(truncate(line2, 34), x + s * 0.067, y + s * 0.56, s * 0.86);
+  g.fillText(truncate(line2, 38), x + s * 0.075, y + s * 0.585, s * 0.85);
+  g.fillStyle = '#5f5b52';
+  g.font = `${Math.round(s * 0.072)}px Inter, system-ui, sans-serif`;
   if (work.dimensions) {
-    g.fillText(truncate(work.dimensions, 34), x + s * 0.067, y + s * 0.72, s * 0.86);
+    g.fillText(truncate(work.dimensions, 38), x + s * 0.075, y + s * 0.75, s * 0.85);
   }
 }
 
@@ -133,7 +139,7 @@ export function buildPaintings(
   coarse = false,
 ): PaintingEntry[] {
   const atlas = buildLabelAtlas(layout.placed.map((p) => p.work));
-  const labelMat = new THREE.MeshBasicMaterial({ map: atlas });
+  const labelMat = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.94, envMapIntensity: 0.12 });
   const entries: PaintingEntry[] = [];
 
   layout.placed.forEach((p, i) => {
@@ -150,8 +156,11 @@ export function buildPaintings(
     // BVH pour le picking.
     const imgMat = new THREE.MeshStandardMaterial({
       color: 0xe3ded6,
-      roughness: 0.82,
-      envMapIntensity: 0.1,
+      // Papier mat : roughness 1 étale le reflet de l'appareil en un voile large.
+      // Avec 0,8 le spot dessinait une petite tache blanche nette sur la toile.
+      roughness: 1,
+      metalness: 0,
+      envMapIntensity: 0.06,
     });
     const imgGeo = new THREE.PlaneGeometry(p.w, p.h);
     imgGeo.boundsTree = new MeshBVH(imgGeo);
@@ -169,18 +178,18 @@ export function buildPaintings(
     const gap = nextP ? p.z - nextP.z - (frame.halfWidth + hwNext) : 1;
     const labelOff = frame.halfWidth + Math.max(0.08, Math.min(0.24, gap / 2 - 0.13));
     const plateMat = new THREE.MeshStandardMaterial({
-      color: 0xb9b5ac,
-      metalness: 0.85,
-      roughness: 0.38,
-      envMapIntensity: 0.9,
+      color: 0x2b2a27,
+      roughness: 0.62,
+      metalness: 0.1,
+      envMapIntensity: 0.3,
     });
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.15, 0.014), plateMat);
-    plate.position.set(labelOff, -p.h / 2 + 0.42, 0.052);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.118, 0.009), plateMat);
+    plate.position.set(labelOff, -p.h / 2 + 0.42, 0.05);
     plate.receiveShadow = shadows;
     plate.name = 'cartel-plaque';
     group.add(plate);
-    const label = new THREE.Mesh(labelGeometry(i, 0.22, 0.135), labelMat);
-    label.position.set(labelOff, -p.h / 2 + 0.42, 0.0595);
+    const label = new THREE.Mesh(labelGeometry(i, 0.18, 0.107), labelMat);
+    label.position.set(labelOff, -p.h / 2 + 0.42, 0.0548);
     label.name = 'cartel';
     group.add(label);
 

@@ -82,27 +82,55 @@ export const POST_TUNING = {
   msaaHigh: 4,
   msaaLow: 2,
   ao: {
-    radius: 0.3,
+    radius: 0.45,
     distanceExponent: 1.4,
     thickness: 0.35,
     scale: 1.0,
     samples: 16,
     samplesLow: 8,
-    blendIntensity: 0.6,
+    blendIntensity: 0.72,
     /** AO en demi-résolution (le mélange se fait en UV normalisés). */
     halfRes: true,
-    denoise: { rings: 2, samples: 16, radius: 4 },
+    denoise: { rings: 3, samples: 16, radius: 6 },
   },
   bloom: {
-    strength: 0.16,
+    strength: 0.24,
     radius: 0.55,
-    threshold: 1.1,
-    strengthLow: 0.14,
+    threshold: 1.02,
+    strengthLow: 0.18,
     thresholdLow: 1.2,
   },
-  grain: { amount: 0.02, hz: 24 },
+  grain: { amount: 0.014, hz: 24 },
   smaa: true,
 } as const;
+
+/**
+ * Bruit de rotation des échantillons GTAO.
+ *
+ * `GTAOPass` utilise par défaut une « magic square » 5×5 : le motif se répète tous les
+ * 5 texels de la cible AO, ce qui dessinait une **grille régulière** sur les murs plats
+ * (visible sur toutes les captures d'avant). Un bruit aléatoire 128² de même format
+ * (vecteur unitaire encodé en RGB) casse cette périodicité ; le débruiteur de Poisson
+ * lave ensuite le reste. C'est la seule modification apportée au pass de three.
+ */
+function aoNoiseTexture(size = 128): THREE.DataTexture {
+  const data = new Uint8Array(size * size * 4);
+  for (let i = 0; i < size * size; i++) {
+    const a = (i * 2.399963229728653) % (Math.PI * 2); // suite de Fibonacci : angles bien répartis
+    data[i * 4] = Math.round((Math.cos(a) * 0.5 + 0.5) * 255);
+    data[i * 4 + 1] = Math.round((Math.sin(a) * 0.5 + 0.5) * 255);
+    data[i * 4 + 2] = 127;
+    data[i * 4 + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, size, size);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
 
 // ---------------------------------------------------------------------------
 // Grain : seul shader custom du plan. Pas `FilmPass` (bruit non symétrique :
@@ -128,17 +156,27 @@ const GrainShader = {
     uniform float uSeed;
     varying vec2 vUv;
 
-    float hash( vec2 p ) {
-      p = fract( p * vec2( 443.897, 441.423 ) );
-      p += dot( p, p.yx + 19.19 );
-      return fract( ( p.x + p.y ) * p.x );
+    // Hash de Dave Hoskins : distribution non corrélée. L'ancienne version
+    // (fract(p * vec2(443.897, 441.423))…) était périodique et dessinait une Trame
+    // diagonale visible sur tous les aplats clairs — murs et passe-partout compris.
+    float hash12( vec2 p ) {
+      vec3 p3 = fract( vec3( p.xyx ) * 0.1031 );
+      p3 += dot( p3, p3.yzx + 33.33 );
+      return fract( ( p3.x + p3.y ) * p3.z );
     }
 
     void main() {
       vec4 c = texture2D( tDiffuse, vUv );
-      // Grain monochrome symétrique, 1 pixel, indépendant de la luminance.
-      float n = ( hash( gl_FragCoord.xy + vec2( uSeed * 71.3, uSeed * 37.7 ) ) - 0.5 ) * 2.0;
-      gl_FragColor = vec4( c.rgb + n * uAmount, c.a );
+      float r = hash12( gl_FragCoord.xy + vec2( uSeed * 13.7, uSeed * 7.3 ) );
+      // Grain monochrome symétrique, 1 px. Pondéré par la luminance : quasi nul dans
+      // les blancs (un grain marqué sur un mur clair se lit comme du bruit numérique).
+      float lum = dot( c.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+      float w = 1.0 - smoothstep( 0.55, 0.98, lum );
+      float n = ( r - 0.5 ) * 2.0;
+      // Vignettage très léger : recentre l'œil sur les toiles (0 = aucun, 1 = coin noir).
+      vec2 d = ( vUv - 0.5 ) * vec2( 1.0, 0.92 );
+      float vig = 1.0 - 0.09 * pow( smoothstep( 0.18, 0.86, length( d ) ), 1.6 );
+      gl_FragColor = vec4( ( c.rgb + n * uAmount * ( 0.35 + 0.65 * w ) ) * vig, c.a );
     }
   `,
 };
@@ -323,6 +361,9 @@ class ComposerPipeline implements PostPipeline {
         screenSpaceRadius: false,
       });
       gtao.updatePdMaterial(POST_TUNING.ao.denoise);
+      // Remplace la magic square 5×5 de three (voir aoNoiseTexture).
+      gtao.gtaoMaterial.uniforms.tNoise.value = aoNoiseTexture();
+      gtao.gtaoMaterial.needsUpdate = true;
       composer.addPass(gtao);
       this.passes.push(gtao);
 

@@ -109,10 +109,11 @@ async function boot(): Promise<void> {
   // droites (cadres, cimaise) quand on se rapproche d'une œuvre.
   const pixelRatio = Math.min(window.devicePixelRatio, 2);
   const shadows = !coarse;
-  const { renderer, scene, camera, sun, spots } = createScene(canvas, layout, pixelRatio, {
+  const { renderer, scene, camera, sun, spots, plants } = createScene(canvas, layout, pixelRatio, {
     shadows,
     coarse,
     artist: data.artist,
+    tagline: data.tagline,
   });
   const entries = buildPaintings(scene, layout, shadows);
   const texAniso = 8;
@@ -407,7 +408,7 @@ async function boot(): Promise<void> {
     renderer.setSize(w, h, false);
     const aspect = w / h;
     camera.aspect = aspect;
-    camera.fov = aspect < 1 ? Math.min(74, 62 / Math.sqrt(aspect)) : 58;
+    camera.fov = aspect < 1 ? Math.min(70, 56 / Math.sqrt(aspect)) : 52;
     camera.updateProjectionMatrix();
     minimap.relayout();
     post?.setSize(w, h);
@@ -420,12 +421,16 @@ async function boot(): Promise<void> {
   let captionIdx = -1;
   let activeZoneIdx = -2;
   const clock = new THREE.Clock();
+  let elapsed = 0;
   // Raycaster réutilisé pour le hover (champ unique) + BVH firstHitOnly (boundsTree sur les tableaux)
   const ray = new THREE.Raycaster();
   ray.firstHitOnly = true;
   function tick(): void {
     const dt = Math.min(clock.getDelta(), 0.05);
+    elapsed += dt;
     controls.update(dt);
+    // végétation : souffle de quelques millimètres (coupé si prefers-reduced-motion)
+    plants.update(elapsed, controls.reduced);
     const camZ = controls.currentZ();
     for (const e of entries) {
       const dz = Math.abs(e.placed.z - camZ);

@@ -29,6 +29,22 @@ export interface TexOpts {
   aniso: number;
   /** Côté max (px) de la texture uploadée vers le GPU — 1024 mobile / 2048 desktop. */
   maxSize?: number;
+  /**
+   * Dessine le motif procédural **tout de suite**, au lieu d'un placeholder 2×2.
+   * À utiliser pour les slots qui n'ont pas encore d'asset (`oak`, `painted`, `leaf`) :
+   * sans cela, la texture reste une couleur unie jusqu'à ce que les 6 candidats aient
+   * échoué (soit plusieurs frames pendant lesquelles le mobilier est plat).
+   */
+  eager?: boolean;
+  /**
+   * Étalonnage CSS appliqué à l'asset pendant son transfert dans la texture
+   * (`saturate(0.6) brightness(1.05)`…). Un asset Nano Banana arrive souvent saturé
+   * « photo de catalogue » : on le ramène dans le nuancier de la galerie plutôt que de
+   * le refuser. Si le navigateur ne connaît pas `ctx.filter`, l'image passe telle quelle.
+   */
+  grade?: string;
+  /** Répétition en miroir : masque la tuile sur les grands aplats (sol, enduit). */
+  mirror?: boolean;
 }
 
 /**
@@ -82,33 +98,74 @@ export function precalcTexture(
   placeholder: string,
   srgb = true,
 ): THREE.Texture {
-  const [c, g] = makeCanvas(2);
-  g.fillStyle = placeholder;
-  g.fillRect(0, 0, 2, 2);
+  // Le canvas de repli ne doit JAMAIS dépasser `maxSize` : la texture est d'abord
+  // allouée à cette taille, puis ré-uploadée avec l'asset (lui-même plafonné à
+  // `maxSize`). Un canvas 4096 ré-uploadé en 2048 déclenchait
+  // « glTexSubImage2D: Offset overflows texture dimensions » et le GPU gardait une
+  // texture vide — le sol restait donc un aplat gris sans la moindre lame.
+  const px = Math.max(2, Math.min(size, opts.maxSize ?? 2048));
+  let c: HTMLCanvasElement;
+  let g: CanvasRenderingContext2D;
+  if (opts.eager) {
+    [c, g] = makeCanvas(px);
+    draw(g, px);
+  } else {
+    [c, g] = makeCanvas(2);
+    g.fillStyle = placeholder;
+    g.fillRect(0, 0, 2, 2);
+  }
   const t: THREE.Texture = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
-  t.wrapT = THREE.RepeatWrapping;
+  t.wrapS = opts.mirror ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping;
+  t.wrapT = opts.mirror ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping;
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.anisotropy = opts.aniso;
   if (opts.repeat) t.repeat.set(opts.repeat[0], opts.repeat[1]);
   const maxSize = opts.maxSize ?? 2048;
+  // Ordre des candidats : la RÉSOLUTION MAXIMALE disponible d'abord, la variante réduite
+  // seulement en repli. (Avant : `-1024` était essayé avant la source pleine taille, donc
+  // le desktop affichait les textures IA en 1024 alors que les sources 2048 existaient.)
+  // Liste courte et ordonnée par qualité : source pleine taille d'abord (elle est
+  // recadrée côté client à `maxSize`), variante réduite en repli, puis textures
+  // procédurales précalculées du build. Chaque candidat manquant coûte une requête.
+  const candidates = [
+    `${TEX_AI}${name}.jpg`,
+    `${TEX_AI}${name}.webp`,
+    `${TEX_AI}${name}-1024.jpg`,
+    `${TEX_AI}${name}-1024.webp`,
+    `${TEX_ASSETS}${name}-${maxSize}.webp`,
+    `${TEX_ASSETS}${name}.webp`,
+  ];
   void (async () => {
-    // 1. override IA (variante réduite d'abord), 2. texture build-time, 3. fallback procédural runtime
+    // 1. override IA, 2. texture build-time, 3. fallback procédural runtime
     let img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined;
-    img =
-      (await loadImageCapped(`${TEX_AI}${name}-${maxSize}.jpg`, maxSize)) ??
-      (await loadImageCapped(`${TEX_AI}${name}-1024.jpg`, maxSize)) ??
-      (await loadImageCapped(`${TEX_AI}${name}.jpg`, maxSize)) ??
-      (await loadImageCapped(`${TEX_AI}${name}-${maxSize}.webp`, maxSize)) ??
-      (await loadImageCapped(`${TEX_AI}${name}.webp`, maxSize)) ??
-      (await loadImageCapped(`${TEX_ASSETS}${name}-${maxSize}.webp`, maxSize)) ??
-      (await loadImageCapped(`${TEX_ASSETS}${name}.webp`, maxSize));
+    for (const url of candidates) {
+      img = await loadImageCapped(url, maxSize);
+      if (img) break;
+    }
     if (!img) {
-      const [c2, g2] = makeCanvas(size);
-      draw(g2, size);
+      const [c2, g2] = makeCanvas(px);
+      draw(g2, px);
       img = c2;
     }
+    if (opts.grade) {
+      const [cg, gg] = makeCanvas(px);
+      try {
+        gg.filter = opts.grade;
+      } catch {
+        /* filtre inconnu : on garde l'image brute */
+      }
+      gg.drawImage(img as CanvasImageSource, 0, 0, px, px);
+      img = cg;
+    }
     t.image = img;
+    // `dispose()` AVANT `needsUpdate` : three alloue les textures en stockage **immuable**
+    // (`texStorage2D`) à la taille du premier téléversement, c'est-à-dire ici le
+    // placeholder 2×2. Remplacer ensuite l'image par une 2048 déclenchait
+    // « glTexSubImage2D: Offset overflows texture dimensions » et le GPU gardait le
+    // placeholder : **tous** les assets IA (sol, enduit, chêne, métal, dorure) étaient
+    // silencieusement ignorés. Libérer la texture force une réallocation complète à la
+    // bonne dimension au rendu suivant.
+    t.dispose();
     t.needsUpdate = true;
   })();
   return t;
@@ -251,5 +308,179 @@ export function giltTexture(aniso: number, maxSize = 1024): THREE.Texture {
       g.fillStyle = `rgba(${v | 0},${(v * 0.78) | 0},${(v * 0.42) | 0},${(Math.random() * 0.08).toFixed(3)})`;
       g.fillRect(Math.random() * s, Math.random() * s, 1 + Math.random() * 2, 1 + Math.random() * 2);
     }
-  }, { aniso: Math.min(aniso, 8), repeat: [1, 1], maxSize }, '#c9a24f');
+  }, {
+    aniso: Math.min(aniso, 8),
+    repeat: [1, 1],
+    maxSize,
+    // grade : l'asset est une feuille d'or froissée aux plis très marqués. Sur une
+    // moulure de 70 mm, ces plis se répétaient en chevrons réguliers (« ruban rayé »).
+    // Écrasé à 30 % de contraste, il ne reste qu'une variation de teinte et de brillance
+    // — ce qu'on voit réellement d'une dorure à 1,50 m.
+    grade: 'contrast(0.62) saturate(1.05) brightness(1.16)',
+  }, '#c9a24f');
+}
+
+/**
+ * Chêne clair (mobilier : bancs, consoles, socles) — slot `oak`, veine verticale.
+ * Le fallback procédural est déjà bon ; un asset IA (`public/tex/oak.jpg`, voir
+ * docs/prompts-nano-banana.md) prendra le dessus automatiquement.
+ */
+export function oakTexture(aniso: number, repeatV = 1, maxSize = 2048): THREE.Texture {
+  return precalcTexture('oak', 1024, (g, s) => {
+    g.fillStyle = '#b48a5c';
+    g.fillRect(0, 0, s, s);
+    // variation de teinte par bandes larges (débit sur quartier)
+    for (let i = 0; i < 26; i++) {
+      const x = Math.random() * s;
+      const w = 12 + Math.random() * s * 0.16;
+      g.fillStyle = Math.random() > 0.5 ? 'rgba(214,178,132,0.10)' : 'rgba(108,72,40,0.09)';
+      g.fillRect(x, 0, w, s);
+    }
+    // veines longues et douces
+    for (let i = 0; i < 520; i++) {
+      const x0 = Math.random() * s;
+      const dark = Math.random() > 0.42;
+      g.strokeStyle = dark
+        ? `rgba(96,62,32,${(0.05 + Math.random() * 0.13).toFixed(3)})`
+        : `rgba(226,196,152,${(0.04 + Math.random() * 0.12).toFixed(3)})`;
+      g.lineWidth = 0.8 + Math.random() * 2.4;
+      g.beginPath();
+      for (let y = 0; y <= s; y += 24) {
+        const x = x0 + Math.sin(y * 0.006 + i * 0.7) * (6 + (i % 7) * 2) + (Math.random() - 0.5) * 2;
+        if (y === 0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // nœuds discrets
+    for (let i = 0; i < 4; i++) {
+      const nx = Math.random() * s;
+      const ny = Math.random() * s;
+      const nr = 4 + Math.random() * 9;
+      const rg = g.createRadialGradient(nx, ny, 0, nx, ny, nr);
+      rg.addColorStop(0, 'rgba(78,48,24,0.5)');
+      rg.addColorStop(0.55, 'rgba(120,80,44,0.22)');
+      rg.addColorStop(1, 'rgba(120,80,44,0)');
+      g.fillStyle = rg;
+      g.beginPath();
+      g.arc(nx, ny, nr, 0, 7);
+      g.fill();
+    }
+  }, { aniso, repeat: [1, repeatV], maxSize, eager: true }, '#b48a5c');
+}
+
+/**
+ * Bois peint (charpente, portiques, menuiseries) — slot `painted` : off-white chaud avec
+ * un grain de bois à peine perceptible. C'est ce qui remplace les poutres chêne sombre :
+ * la structure se lit en relief et en ombre, jamais en contraste.
+ */
+export function paintedWoodTexture(aniso: number, repeatV = 1, maxSize = 2048): THREE.Texture {
+  return precalcTexture('painted', 1024, (g, s) => {
+    g.fillStyle = '#efe9de';
+    g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 340; i++) {
+      const x0 = Math.random() * s;
+      g.strokeStyle = Math.random() > 0.5
+        ? `rgba(255,255,255,${(0.05 + Math.random() * 0.10).toFixed(3)})`
+        : `rgba(196,184,166,${(0.05 + Math.random() * 0.10).toFixed(3)})`;
+      g.lineWidth = 0.8 + Math.random() * 2.2;
+      g.beginPath();
+      for (let y = 0; y <= s; y += 28) {
+        const x = x0 + Math.sin(y * 0.007 + i) * (5 + (i % 5) * 2);
+        if (y === 0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // micro-grain de peinture
+    for (let i = 0; i < 9000; i++) {
+      const v = 226 + Math.random() * 22;
+      g.fillStyle = `rgba(${v | 0},${(v - 4) | 0},${(v - 12) | 0},${(Math.random() * 0.06).toFixed(3)})`;
+      g.fillRect(Math.random() * s, Math.random() * s, 1.4, 1.4);
+    }
+  }, { aniso, repeat: [1, repeatV], maxSize, eager: true }, '#efe9de');
+}
+
+/**
+ * Ciel de verrière : dégradé froid + nuages très diffus. Utilisé comme `emissiveMap`
+ * du vitrage (aucune dépendance à un HDRI, aucun éclairage).
+ */
+export function skyTexture(): THREE.CanvasTexture {
+  const w = 512;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  if (!g) throw new Error('Contexte 2D indisponible');
+  const grad = g.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#f4f9ff');
+  grad.addColorStop(0.55, '#e8f1fb');
+  grad.addColorStop(1, '#f6f3ec');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+  // nuages diffus (taches douces, périodiques horizontalement pour rester raccordable)
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * h * 0.9;
+    const rx = 40 + Math.random() * 150;
+    const ry = 14 + Math.random() * 40;
+    const rg = g.createRadialGradient(x, y, 0, x, y, rx);
+    rg.addColorStop(0, `rgba(255,255,255,${(0.10 + Math.random() * 0.22).toFixed(3)})`);
+    rg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = rg;
+    g.save();
+    g.translate(x, y);
+    g.scale(1, ry / rx);
+    g.beginPath();
+    g.arc(0, 0, rx, 0, 7);
+    g.fill();
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/**
+ * Fibre de feuille : carte de **luminance** quasi neutre (fibres, nervures, micro-
+ * variegation), et non une couleur verte.
+ *
+ * Les feuilles portent leur teinte en couleur de sommet ; multiplier deux verts
+ * (texture × couleur) donnait un feuillage presque noir dès qu'il était à l'ombre.
+ */
+export function leafTexture(aniso: number): THREE.Texture {
+  return precalcTexture('leaf', 512, (g, s) => {
+    g.fillStyle = '#d9d9d2';
+    g.fillRect(0, 0, s, s);
+    // fibres obliques
+    for (let i = 0; i < 2600; i++) {
+      const x = Math.random() * s;
+      const y = Math.random() * s;
+      const light = Math.random() > 0.5;
+      g.strokeStyle = light
+        ? `rgba(255,255,250,${(0.05 + Math.random() * 0.14).toFixed(3)})`
+        : `rgba(120,124,104,${(0.04 + Math.random() * 0.12).toFixed(3)})`;
+      g.lineWidth = 1 + Math.random() * 1.6;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + (Math.random() - 0.5) * 26, y + 14 + Math.random() * 26);
+      g.stroke();
+    }
+    // petites taches de variegation
+    for (let i = 0; i < 240; i++) {
+      const x = Math.random() * s;
+      const y = Math.random() * s;
+      const r = 4 + Math.random() * 16;
+      const rg = g.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, `rgba(255,255,255,${(0.05 + Math.random() * 0.1).toFixed(3)})`);
+      rg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = rg;
+      g.beginPath();
+      g.arc(x, y, r, 0, 7);
+      g.fill();
+    }
+  }, { aniso: Math.min(aniso, 4), repeat: [1, 1], maxSize: 512, eager: true }, '#d9d9d2');
 }
