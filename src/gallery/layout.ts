@@ -9,6 +9,15 @@ export const Z_START = 5.5;
 export const Z_END_MARGIN = 4.5;
 export const VIEW_DIST = 2.6;
 
+/**
+ * Marge de la caméra au-delà des deux extrémités du hall — reprend les extrémités de
+ * l'ancien tracé CatmullRom de controls.ts (Z_START + 1.2 → zEnd + 1.2).
+ */
+export const CAM_MARGIN = 1.2;
+
+/** §4 de docs/design/rebuild.md : demi-largeur d'un palier « dwell », en fraction de l'écart inter-œuvres. */
+export const DWELL_HALF = 0.08;
+
 export interface PlacedWork {
   work: GalleryData['works'][number];
   x: number;
@@ -69,6 +78,62 @@ export function portalPositions(layout: Layout): Portal[] {
     }
   }
   return out;
+}
+
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+
+/** smoothstep : dérivée nulle aux deux bornes, raccord C1 avec les paliers du dwell. */
+const smoothstep = (u: number): number => {
+  const x = clamp01(u);
+  return x * x * (3 - 2 * x);
+};
+
+/**
+ * Courbe de « dwell » (§4 de docs/design/rebuild.md) — fonction pure, sans dépendance :
+ * monotone [0,1] → [0,1], de dérivée nulle sur ±DWELL_HALF × (écart inter-œuvres) autour de
+ * chaque `centers[i]`. Avec `camZ = lerp(zFirst, zLast, dwell(t))`, la caméra s'arrête
+ * devant chaque œuvre et accélère entre deux, sans que le visiteur ait à arrêter de
+ * scroller. Repli linéaire (`t => t`) en `prefers-reduced-motion`, côté appelant.
+ */
+export function createDwellCurve(centers: number[]): (t: number) => number {
+  const cs = [...centers].sort((a, b) => a - b);
+  const n = cs.length;
+  if (n === 0) return (t) => clamp01(t);
+  // Demi-largeur de palier : ±8 % de l'écart au voisin le plus proche, bornée à 45 % de cet
+  // écart pour que deux paliers ne se chevauchent jamais (sinon plus monotone).
+  const half = cs.map((c, i) => {
+    const gap = Math.min(i > 0 ? c - cs[i - 1] : c, i < n - 1 ? cs[i + 1] - c : 1 - c);
+    return Math.min(DWELL_HALF, 0.45) * gap;
+  });
+  return (t) => {
+    const x = clamp01(t);
+    let prevEnd = 0;
+    let prevVal = 0;
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, cs[i] - half[i]);
+      const b = Math.min(1, cs[i] + half[i]);
+      if (x <= b) {
+        if (x >= a) return cs[i]; // palier : la caméra est arrêtée devant l'œuvre i
+        return prevVal + (cs[i] - prevVal) * smoothstep((x - prevEnd) / Math.max(1e-9, a - prevEnd));
+      }
+      prevEnd = b;
+      prevVal = cs[i];
+    }
+    return prevVal + (1 - prevVal) * smoothstep((x - prevEnd) / Math.max(1e-9, 1 - prevEnd));
+  };
+}
+
+/**
+ * Trajet caméra du mode guidé : bornes z et positions linéaires t des œuvres sur ce trajet.
+ * `camZ(t) = lerp(zFirst, zLast, dwell(t))` avec `dwell = createDwellCurve(centers)`.
+ * (Les points de l'ancien tracé CatmullRom étaient colinéaires, x/y constants : son
+ * `getPointAt(t)` produisait exactement ce lerp — aucun changement de comportement au repos.)
+ */
+export function cameraPath(layout: Layout): { zFirst: number; zLast: number; centers: number[] } {
+  const zFirst = Z_START + CAM_MARGIN;
+  const zLast = layout.zEnd + CAM_MARGIN;
+  const span = zFirst - zLast;
+  return { zFirst, zLast, centers: layout.placed.map((p) => (zFirst - p.viewZ) / span) };
 }
 
 export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {

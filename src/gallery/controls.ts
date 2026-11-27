@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Tween, Easing, Group } from '@tweenjs/tween.js';
 
-import { HALL_WIDTH, WALL_Y, Z_START, type Layout, type PlacedWork } from './layout';
+import { HALL_WIDTH, WALL_Y, Z_START, cameraPath, createDwellCurve, type Layout, type PlacedWork } from './layout';
 
 import { createPhysics, type PhysicsWorld } from './physics';
 
@@ -41,7 +41,10 @@ export class GalleryControls {
 
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
-  private readonly curve: THREE.CatmullRomCurve3;
+  private readonly pathZFirst: number;
+  private readonly pathZLast: number;
+  /** Courbe de « dwell » (layout.ts, rebuild.md §4) : arrêts devant chaque œuvre — repli linéaire si `reduced`. */
+  private readonly dwell: (t: number) => number;
   private readonly pos: THREE.Vector3;
   private readonly lookVec = new THREE.Vector3(-HALL_WIDTH / 2, WALL_Y, Z_START - 4);
   private readonly raycaster = new THREE.Raycaster();
@@ -66,27 +69,16 @@ export class GalleryControls {
     this.raycaster.firstHitOnly = true;
 
     this.pos = new THREE.Vector3(layout.pathX, 1.6, Z_START);
-    const pts: THREE.Vector3[] = [new THREE.Vector3(layout.pathX, 1.6, Z_START + 1.2)];
-    for (const p of layout.placed) {
-      pts.push(new THREE.Vector3(layout.pathX, 1.6, p.viewZ));
-    }
-    pts.push(new THREE.Vector3(layout.pathX, 1.6, layout.zEnd + 1.2));
-    this.curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.6);
-
-    const N = 240;
-    for (const p of layout.placed) {
-      let best = 0;
-      let bd = Infinity;
-      for (let i = 0; i < N; i++) {
-        const tt = i / (N - 1);
-        const d = Math.abs(this.curve.getPointAt(tt).z - p.viewZ);
-        if (d < bd) {
-          bd = d;
-          best = tt;
-        }
-      }
-      p.scrollT = best;
-    }
+    // Trajet caméra = lerp en z (les points de l'ancien tracé étaient colinéaires) piloté
+    // par la courbe de « dwell » : camZ = lerp(zFirst, zLast, dwell(t)).
+    const path = cameraPath(layout);
+    this.pathZFirst = path.zFirst;
+    this.pathZLast = path.zLast;
+    this.dwell = createDwellCurve(path.centers);
+    // scrollT = centre du palier dwell de l'œuvre : scrollToWork pose la caméra exactement devant la toile
+    layout.placed.forEach((p, i) => {
+      p.scrollT = path.centers[i];
+    });
 
     window.addEventListener('scroll', () => this.readScroll(), { passive: true });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -218,7 +210,12 @@ export class GalleryControls {
     if (this.mode === 'guided') {
       if (this.reduced) this.t = this.targetT;
       else this.t += (this.targetT - this.t) * Math.min(1, dt * 7.5);
-      this.curve.getPointAt(clamp(this.t, 0, 1), this.pos);
+      // Rythme « dwell » (rebuild.md §4) : camZ = lerp(zFirst, zLast, dwell(t)) — la caméra
+      // s'arrête devant chaque œuvre. Repli linéaire en prefers-reduced-motion. progressT()
+      // et la détection de fin (main.ts) ne bougent pas : elles lisent le scroll / camZ.
+      const tt = clamp(this.t, 0, 1);
+      const d = this.reduced ? tt : this.dwell(tt);
+      this.pos.set(this.layout.pathX, 1.6, this.pathZFirst + (this.pathZLast - this.pathZFirst) * d);
       // défense en profondeur : jamais derrière le mur du fond
       this.pos.z = Math.max(this.pos.z, this.layout.zEnd + 1);
       this.camera.position.copy(this.pos);

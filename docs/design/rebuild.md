@@ -1,7 +1,7 @@
 # Refonte appliquée — `feat/rebuild-v3`
 
-Ce qui est **fait** sur cette branche, ce qui reste à arbitrer, et pourquoi le rythme de scroll
-n'est pas encore engagé. Le diagnostic et les propositions sont dans
+Ce qui est **fait** sur cette branche, ce qui reste à arbitrer, et comment le rythme de scroll
+a été engagé (§4). Le diagnostic et les propositions sont dans
 [`audit-ui.md`](audit-ui.md), [`audit-3d.md`](audit-3d.md) et [`proposals/`](proposals/).
 Le système cible est dans [`../../DESIGN.md`](../../DESIGN.md).
 
@@ -78,9 +78,16 @@ première ne touche plus le bord. La cause profonde (la caméra passe *à côté
 devant) est un problème de **rythme**, pas de distance focale : c'est la courbe de « dwell » du
 point 4 qui la règle, en faisant s'arrêter la caméra face à chaque toile.
 
-## 4. Rythme de scroll — à lancer, comme convenu
+## 4. Rythme de scroll — fait (option 1, courbe de « dwell »)
 
 Décision : **on le fait, après**. Le plan est prêt, il ne dépend de rien d'autre.
+
+**Livré** : option 1 — `createDwellCurve()` dans `src/gallery/layout.ts` (fonction pure,
+~25 lignes) + `cameraPath()` (bornes z du trajet et centres des paliers), câblées dans
+`src/gallery/controls.ts` : `camZ = lerp(zFirst, zLast, dwell(t))` remplace l'ancien tracé
+CatmullRom (points colinéaires : écart < 1 mm, comportement au repos inchangé), `scrollT`
+= centre du palier de l'œuvre, repli linéaire si `prefers-reduced-motion`. `progressT()` et
+la détection de fin ne bougent pas.
 
 L'effet recherché (le rythme d'une salle de musée) est un **temps d'arrêt devant chaque œuvre**,
 pas une animation de plus. Deux façons, par ordre de préférence :
