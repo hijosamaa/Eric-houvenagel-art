@@ -13,8 +13,10 @@ La galerie charge les textures dans cet ordre de priorité (`src/gallery/texture
    `plaster.webp`, `floor.webp`, `ceiling.webp`, `beam.webp`, `metal.webp`, `rug.webp`, `gilt.webp`.
 3. Recharge la page : l'image IA est utilisée immédiatement (aucun rebuild nécessaire en dev ;
    en prod, `vite build` copie `public/` dans `dist/` automatiquement).
-4. Le dossier `ai/` est ignoré par git (`.gitignore` interne) : tes assets ne seront pas commités,
-   et `scripts/gen-textures.mjs` ne les écrasera **jamais** (il ne touche que les 5 noms de base).
+4. Le dossier `ai/` est **versionné** (les `.webp` sont commités sur `main`, seuls les `.png/.jpg`
+   sources et fichiers temporaires sont ignorés) : chaque texture déposée doit être `git add` +
+   commit + push pour être publiée. `scripts/gen-textures.mjs` ne les écrase **jamais**
+   (il ne touche que les 5 noms de base dans `textures/`).
 
 Conversion PNG → WebP si besoin :
 

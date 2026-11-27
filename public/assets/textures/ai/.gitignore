@@ -1,2 +1,8 @@
-*
-!.gitignore
+# Textures IA versionnées (publiées sur main) :
+# ne PAS remettre "*" ici, les .webp doivent être commités.
+# Ignorer uniquement les sources non converties et les fichiers temporaires.
+*.png
+*.jpg
+*.jpeg
+*.tmp
+*.DS_Store
