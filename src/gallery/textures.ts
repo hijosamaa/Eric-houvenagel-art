@@ -4,12 +4,21 @@ import * as THREE from 'three';
  * Fabrique de textures procédurales de la galerie.
  *
  * `precalcTexture(name, …)` renvoie immédiatement une texture placeholder 2×2, puis :
- *   1. tente de charger `assets/textures/ai/<name>.webp`  ← **override IA (Nano Banana…)**,
- *      déposé par l'utilisateur dans `public/assets/textures/ai/` (non commité, voir .gitignore) ;
- *   2. sinon `assets/textures/<name>.webp` (précalcul build-time, scripts/gen-textures.mjs) ;
+ *   1. tente de charger `assets/textures/ai/<name>-<maxSize>.webp` (variante réduite,
+ *      générée par scripts/gen-texture-variants.mjs) puis `ai/<name>.webp`, puis les
+ *      mêmes en `.jpg` (fallback universel si le WebP est bloqué/non décodé)
+ *      ← **override IA (Nano Banana…)**, déposé par l'utilisateur dans
+ *      `public/assets/textures/ai/` ;
+ *   2. sinon `assets/textures/<name>-<maxSize>.webp` puis `<name>.webp`
+ *      (précalcul build-time, scripts/gen-textures.mjs) ;
  *   3. sinon retombe sur le générateur canvas 2D `draw` (comportement historique).
- * Dans les 3 cas, les paramètres (repeat, anisotropy, colorSpace, wrapping) sont identiques,
- * donc un remplacement d'asset ne change jamais l'échelle ni le rendu de base.
+ *
+ * Toute image dépassant `opts.maxSize` est **resizée côté client** via
+ * `createImageBitmap(blob, { resize… })` : sur mobile (maxSize 1024) on ne décode ni
+ * n'upload jamais une texture de 2048²/4096² en mémoire GPU (c'était la cause des
+ * textures noires / non chargées sur mobile). Dans tous les cas, les paramètres
+ * (repeat, anisotropy, colorSpace, wrapping) sont identiques : un remplacement
+ * d'asset ne change jamais l'échelle ni le rendu de base.
  */
 
 export const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
@@ -17,6 +26,50 @@ export const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
 export interface TexOpts {
   repeat?: [number, number];
   aniso: number;
+  /** Côté max (px) de la texture uploadée vers le GPU — 1024 mobile / 2048 desktop. */
+  maxSize?: number;
+}
+
+/** Charge une image en blob et la décode, resizée à `maxSize` si nécessaire. */
+async function loadImageCapped(url: string, maxSize: number): Promise<ImageBitmap | HTMLImageElement | undefined> {
+  let blob: Blob;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    blob = await res.blob();
+  } catch {
+    return undefined;
+  }
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const side = Math.max(bmp.width, bmp.height);
+      if (side > maxSize) {
+        const s = maxSize / side;
+        return await createImageBitmap(blob, {
+          resizeWidth: Math.max(1, Math.round(bmp.width * s)),
+          resizeHeight: Math.max(1, Math.round(bmp.height * s)),
+          resizeQuality: 'high',
+        });
+      }
+      return bmp;
+    } catch {
+      // createImageBitmap indisponible ou a échoué : repli <img>
+    }
+  }
+  const objUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('decode failed'));
+      img.src = objUrl;
+    });
+  } catch {
+    return undefined;
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
 }
 
 export function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -44,20 +97,22 @@ export function precalcTexture(
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.anisotropy = opts.aniso;
   if (opts.repeat) t.repeat.set(opts.repeat[0], opts.repeat[1]);
-  const loader = new THREE.TextureLoader();
+  const maxSize = opts.maxSize ?? 2048;
   void (async () => {
-    // 1. override IA, 2. texture build-time, 3. fallback procédural runtime
-    let img: HTMLImageElement | HTMLCanvasElement | undefined;
-    try {
-      img = (await loader.loadAsync(`${TEX_ASSETS}ai/${name}.webp`)).image;
-    } catch {
-      try {
-        img = (await loader.loadAsync(`${TEX_ASSETS}${name}.webp`)).image;
-      } catch {
-        const [c2, g2] = makeCanvas(size);
-        draw(g2, size);
-        img = c2;
-      }
+    // 1. override IA (variante réduite d'abord), 2. texture build-time, 3. fallback procédural runtime
+    let img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined;
+    img =
+      (await loadImageCapped(`${TEX_ASSETS}ai/${name}-${maxSize}.webp`, maxSize)) ??
+      (await loadImageCapped(`${TEX_ASSETS}ai/${name}.webp`, maxSize)) ??
+      // fallback JPEG universel (WebP peut être bloqué/non décodé par certains environnements)
+      (await loadImageCapped(`${TEX_ASSETS}ai/${name}-${maxSize}.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_ASSETS}ai/${name}.jpg`, maxSize)) ??
+      (await loadImageCapped(`${TEX_ASSETS}${name}-${maxSize}.webp`, maxSize)) ??
+      (await loadImageCapped(`${TEX_ASSETS}${name}.webp`, maxSize));
+    if (!img) {
+      const [c2, g2] = makeCanvas(size);
+      draw(g2, size);
+      img = c2;
     }
     t.image = img;
     t.needsUpdate = true;
@@ -71,7 +126,7 @@ export function precalcTexture(
  * ------------------------------------------------------------------------- */
 
 /** Chêne des poutres/mobilier : veine verticale (le long de la poutre = axe v des box). */
-export function beamTexture(aniso: number, repeatV = 1, base = '#6a4e32'): THREE.Texture {
+export function beamTexture(aniso: number, repeatV = 1, base = '#6a4e32', maxSize = 2048): THREE.Texture {
   return precalcTexture('beam', 1024, (g, s) => {
     g.fillStyle = base;
     g.fillRect(0, 0, s, s);
@@ -111,11 +166,11 @@ export function beamTexture(aniso: number, repeatV = 1, base = '#6a4e32'): THREE
       g.arc(nx, ny, nr, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [1, repeatV] }, base);
+  }, { aniso, repeat: [1, repeatV], maxSize }, base);
 }
 
 /** Métal brossé vertical (bronze des châssis de verrière), non sRGB (utilisé comme map neutre). */
-export function metalTexture(aniso: number): THREE.Texture {
+export function metalTexture(aniso: number, maxSize = 2048): THREE.Texture {
   return precalcTexture('metal', 512, (g, s) => {
     g.fillStyle = '#4a4136';
     g.fillRect(0, 0, s, s);
@@ -127,14 +182,14 @@ export function metalTexture(aniso: number): THREE.Texture {
         : `rgba(18,14,10,${(Math.random() * 0.13).toFixed(3)})`;
       g.fillRect(x, 0, 1, s);
     }
-  }, { aniso: Math.min(aniso, 8), repeat: [1, 1] }, '#4a4136');
+  }, { aniso: Math.min(aniso, 8), repeat: [1, 1], maxSize }, '#4a4136');
 }
 
 /**
  * Tapis tissé, champ seamless (motif losangé + trame) — la bordure est posée en
  * géométrie (4 baguettes) donc pas de couture dans la texture. Tuile = 2,6 m.
  */
-export function rugTexture(aniso: number): THREE.Texture {
+export function rugTexture(aniso: number, maxSize = 2048): THREE.Texture {
   return precalcTexture('rug', 2048, (g, s) => {
     g.fillStyle = '#5f3c31';
     g.fillRect(0, 0, s, s);
@@ -176,11 +231,11 @@ export function rugTexture(aniso: number): THREE.Texture {
         g.fill();
       }
     }
-  }, { aniso, repeat: [1, 1] }, '#5f3c31');
+  }, { aniso, repeat: [1, 1], maxSize }, '#5f3c31');
 }
 
 /** Dorure des cadres : or brossé, studs chauds/froids (map + fallback IA gilt.webp). */
-export function giltTexture(aniso: number): THREE.Texture {
+export function giltTexture(aniso: number, maxSize = 1024): THREE.Texture {
   return precalcTexture('gilt', 512, (g, s) => {
     const grad = g.createLinearGradient(0, 0, s, s);
     grad.addColorStop(0, '#dcb96e');
@@ -202,5 +257,5 @@ export function giltTexture(aniso: number): THREE.Texture {
       g.fillStyle = `rgba(${v | 0},${(v * 0.78) | 0},${(v * 0.42) | 0},${(Math.random() * 0.08).toFixed(3)})`;
       g.fillRect(Math.random() * s, Math.random() * s, 1 + Math.random() * 2, 1 + Math.random() * 2);
     }
-  }, { aniso: Math.min(aniso, 8), repeat: [1, 1] }, '#c9a24f');
+  }, { aniso: Math.min(aniso, 8), repeat: [1, 1], maxSize }, '#c9a24f');
 }

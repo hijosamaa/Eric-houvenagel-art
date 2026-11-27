@@ -1,8 +1,6 @@
 # Textures IA versionnées (publiées sur main) :
-# ne PAS remettre "*" ici, les .webp doivent être commités.
-# Ignorer uniquement les sources non converties et les fichiers temporaires.
+# ne PAS remettre "*" ici, les .webp/.jpg doivent être commités.
+# Ignorer uniquement les sources brutes déposées pour conversion (PNG) et les temporaires.
 *.png
-*.jpg
-*.jpeg
 *.tmp
 *.DS_Store
