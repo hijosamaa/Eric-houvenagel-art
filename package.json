@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/build-data.mjs",
+    "predev": "node scripts/build-data.mjs && node scripts/gen-texture-variants.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/build-data.mjs",
+    "prebuild": "node scripts/build-data.mjs && node scripts/gen-texture-variants.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "mcp": "node scripts/mcp-server.mjs",

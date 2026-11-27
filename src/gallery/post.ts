@@ -94,10 +94,10 @@ export const POST_TUNING = {
     denoise: { rings: 2, samples: 16, radius: 4 },
   },
   bloom: {
-    strength: 0.22,
+    strength: 0.16,
     radius: 0.55,
-    threshold: 1.0,
-    strengthLow: 0.2,
+    threshold: 1.1,
+    strengthLow: 0.14,
     thresholdLow: 1.2,
   },
   grain: { amount: 0.02, hz: 24 },
@@ -398,7 +398,9 @@ class ComposerPipeline implements PostPipeline {
       this.bloom.strength = high ? POST_TUNING.bloom.strength : POST_TUNING.bloom.strengthLow;
       this.bloom.threshold = high ? POST_TUNING.bloom.threshold : POST_TUNING.bloom.thresholdLow;
     }
-    if (this.smaa) this.smaa.enabled = high;
+    // SMAA actif aussi en 'low' : c'est lui qui lisse les arêtes des lignes droites
+    // (cadres, cimaise) quand on se rapproche — le MSAA 2× seul laisse de l'escalier.
+    if (this.smaa) this.smaa.enabled = true;
     let n = 0;
     if (this.composer) {
       for (const p of this.composer.passes) if ((p as { enabled?: boolean }).enabled !== false) n++;
@@ -508,9 +510,9 @@ class ComposerPipeline implements PostPipeline {
  *
  * - `null` si le post n'est pas possible (render target float half non supporté) →
  *   l'appelant garde `renderer.render(scene, camera)`.
- * - `coarse` : la chaîne démarre en `'off'` **sans allouer** les buffers (~75 Mo en
- *   HalfFloat à 1440×900 dpr 2, ×2 buffers) ; `setQuality('low')` la construit à la
- *   demande et `setQuality('off')` la détruit.
+ * - `coarse` : la chaîne démarre en `'low'` (MSAA 2× + SMAA, AO léger) — le rendu
+ *   direct sans SMAA laissait des lignes en escalier sur mobile ; `setQuality('off')`
+ *   reste disponible pour les très vieux GPU.
  */
 export function createPost(
   renderer: THREE.WebGLRenderer,
@@ -522,6 +524,8 @@ export function createPost(
     renderer.extensions.has('EXT_color_buffer_half_float') || renderer.extensions.has('EXT_color_buffer_float');
   if (!hasHalfFloat) return null;
   const pipeline = new ComposerPipeline(renderer, scene, camera, opts);
-  if (!opts.coarse) pipeline.setQuality('high');
+  // Mobile : chaîne 'low' (MSAA 2× + SMAA + AO léger) et non plus 'off' — sans SMAA,
+  // les lignes droites des cadres sont en escalier dès qu'on se rapproche d'une œuvre.
+  pipeline.setQuality(opts.coarse ? 'low' : 'high');
   return pipeline;
 }

@@ -14,6 +14,8 @@ import { hallBounds, type Layout, type PlacedWork } from './layout';
  */
 export class Minimap {
   onPick: ((p: PlacedWork) => void) | null = null;
+  /** Clic sur le segment d'une salle → saut au début de la salle. */
+  onZonePick: ((zoneIndex: number) => void) | null = null;
 
   private readonly layout: Layout;
   private readonly root: HTMLElement;
@@ -42,17 +44,22 @@ export class Minimap {
     this.fill.className = 'mm-fill';
     this.track.appendChild(this.fill);
 
-    // segments de salles
-    for (const z of layout.zones) {
+    // segments de salles — cliquables : saut au début de la salle
+    layout.zones.forEach((z, zi) => {
       const seg = document.createElement('div');
       seg.className = 'mm-seg';
       const p0 = ((zMax - z.zMax) / this.span) * 100;
       const p1 = ((zMax - z.zMin) / this.span) * 100;
       seg.style.setProperty('--z0', `${p0}%`);
       seg.style.setProperty('--z1', `${p1}%`);
-      seg.title = z.name;
+      seg.title = `Aller à « ${z.name} »`;
+      seg.setAttribute('role', 'button');
+      seg.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.onZonePick?.(zi);
+      });
       this.track.appendChild(seg);
-    }
+    });
 
     // stops
     layout.placed.forEach((p, i) => {

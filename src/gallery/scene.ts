@@ -34,7 +34,7 @@ const RUG_TILE = 2.6;
 const CIMAISE_Y = 2.5;
 
 /** Plâtre 2048 : grain fin + grandes marbrures douces. */
-function plasterTexture(aniso: number, len: number): THREE.Texture {
+function plasterTexture(aniso: number, len: number, coarse = false): THREE.Texture {
   return precalcTexture('plaster', 2048, (g, s) => {
     g.fillStyle = '#ece5d8';
     g.fillRect(0, 0, s, s);
@@ -56,7 +56,7 @@ function plasterTexture(aniso: number, len: number): THREE.Texture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [Math.max(1, len / PLASTER_TILE), HALL_HEIGHT / PLASTER_TILE] }, '#ece5d8');
+  }, { aniso, repeat: [Math.max(1, len / PLASTER_TILE), HALL_HEIGHT / PLASTER_TILE], maxSize: coarse ? 1024 : 2048 }, '#ece5d8');
 }
 
 /**
@@ -64,7 +64,7 @@ function plasterTexture(aniso: number, len: number): THREE.Texture {
  * les UV valent des **mètres** (WorldUVGenerator) : le repeat ramène une tuile à
  * CEILING_TILE mètres, quelle que soit la découpe de la trémie.
  */
-function ceilingTexture(aniso: number): THREE.Texture {
+function ceilingTexture(aniso: number, coarse = false): THREE.Texture {
   return precalcTexture('ceiling', 2048, (g, s) => {
     g.fillStyle = '#f3efe6';
     g.fillRect(0, 0, s, s);
@@ -85,7 +85,7 @@ function ceilingTexture(aniso: number): THREE.Texture {
       g.arc(x, y, r, 0, 7);
       g.fill();
     }
-  }, { aniso, repeat: [1 / CEILING_TILE, 1 / CEILING_TILE] }, '#f3efe6');
+  }, { aniso, repeat: [1 / CEILING_TILE, 1 / CEILING_TILE], maxSize: coarse ? 1024 : 2048 }, '#f3efe6');
 }
 
 /** Dégradé radial de la verrière : cœur à 1,0 (seul dépassement du seuil de bloom avec la lentille), bords à ~0,30. */
@@ -177,7 +177,7 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
         g.fill();
       }
     }
-  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#8a6c46');
+  }, { aniso, repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))], maxSize: coarse ? 1024 : 2048 }, '#8a6c46');
 
   const rough = precalcTexture('floor-rough', 1024, (g, s) => {
     g.fillStyle = '#b8b8b8';
@@ -206,7 +206,7 @@ function floorTextures(aniso: number, len: number, coarse: boolean): { map: THRE
         g.stroke();
       }
     }
-  }, { aniso: Math.min(aniso, 8), repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))] }, '#b8b8b8', false);
+  }, { aniso: Math.min(aniso, 8), repeat: [HALL_WIDTH / 3.6, Math.max(2, Math.round(len / 3.6))], maxSize: 1024 }, '#b8b8b8', false);
   return { map, roughnessMap: rough };
 }
 
@@ -319,34 +319,36 @@ export function createScene(
   pixelRatio: number,
   opts: { shadows: boolean; coarse: boolean; artist?: string },
 ): SceneContext {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: opts.coarse, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(pixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // Ambiance plus sombre « chiaroscuro » : l'exposition baisse (0,85) et ce sont les
-  // spots des tableaux qui portent la lumière, pas le plein jour.
-  renderer.toneMappingExposure = 0.75;
+  // Ambiance « jour » naturelle : exposition neutre, la lumière vient du soleil +
+  // de la trémie (pas d'éclairage muséal sombre).
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = opts.shadows;
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
   const aniso = Math.min(maxAniso, opts.coarse ? 8 : 16);
+  // Côté max des textures uploadées : 1024 px sur mobile (mémoire GPU), 2048 sinon.
+  const texMax = opts.coarse ? 1024 : 2048;
 
   const scene = new THREE.Scene();
   const { zMin, zMax } = hallBounds(layout);
   const len = zMax - zMin;
   const cz = (zMin + zMax) / 2;
-  // Fond aligné sur le brouillard, plus chaud/sombre que l'ancien blanc cassé.
-  scene.background = new THREE.Color(0xddd2bd);
-  // Brouillard adaptatif : ~12 % de voile au fond quelle que soit la longueur du hall
-  // (un hall de 100 m à densité fixe noierait la profondeur).
-  scene.fog = new THREE.FogExp2(0xddd2bd, Math.min(0.02, Math.max(0.004, 0.33 / len)));
+  // Fond = teinte du plâtre éclairé (pas de brouillard : la profondeur se lit
+  // avec le mur du fond + le panneau de l'artiste, et le hall reste « naturel »).
+  scene.background = new THREE.Color(0xded5c4);
+  scene.fog = null;
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.4; // IBL studio tamisée : pas de reflets « plastique »
+  scene.environmentIntensity = 0.55; // IBL douce : matériaux moins plats, reflets crédibles
   pmrem.dispose();
 
-  const camera = new THREE.PerspectiveCamera(58, 1, 0.05, 120);
+  // far suffisant pour voir le fond d'un hall de 150 m (near/far < 8000 reste safe en 24 bits).
+  const camera = new THREE.PerspectiveCamera(58, 1, 0.05, Math.max(160, len + 60));
   camera.position.set(layout.pathX, 1.6, Z_START);
   // Le toit vit sur ROOF_LAYER : la caméra doit le voir (voir lights.ts).
   camera.layers.enable(ROOF_LAYER);
@@ -385,11 +387,11 @@ export function createScene(
     scene.add(sky);
   }
 
-  // Pool de spots « tableau » (3 desktop / 1 mobile) — piloté par main.ts via TableSpots.
-  const spots = new TableSpots(scene, { count: opts.coarse ? 1 : 3, shadows: opts.shadows });
+  // Pool de spots « tableau » (6 desktop / 3 mobile) — piloté par main.ts via TableSpots.
+  const spots = new TableSpots(scene, { count: opts.coarse ? 3 : 6, shadows: opts.shadows });
   const spotPool = spots.pool;
 
-  const plasterTex = plasterTexture(aniso, len);
+  const plasterTex = plasterTexture(aniso, len, opts.coarse);
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
     bumpMap: plasterTex,
@@ -407,12 +409,12 @@ export function createScene(
     envMapIntensity: 0.35,
   });
   const ceilMat = new THREE.MeshStandardMaterial({
-    map: ceilingTexture(aniso),
+    map: ceilingTexture(aniso, opts.coarse),
     roughness: 1,
     envMapIntensity: 0.2,
   });
   const wood = new THREE.MeshStandardMaterial({
-    map: beamTexture(aniso, 2.5, '#8a6a48'),
+    map: beamTexture(aniso, 2.5, '#8a6a48', texMax),
     color: 0xd9b98f,
     roughness: 0.5,
     metalness: 0,
@@ -421,7 +423,7 @@ export function createScene(
   const trim = new THREE.MeshStandardMaterial({ color: 0xece5d6, roughness: 0.9, envMapIntensity: 0.3 });
   // Bronze brossé des châssis de verrière (remplace l'ancien métal sombre plat « moche »).
   const bronze = new THREE.MeshStandardMaterial({
-    map: metalTexture(aniso),
+    map: metalTexture(aniso, texMax),
     color: 0xbfae94,
     roughness: 0.38,
     metalness: 0.9,
@@ -429,14 +431,14 @@ export function createScene(
   });
   // Poutres longitudinales en chêne sombre encadrant la verrière.
   const beamMat = new THREE.MeshStandardMaterial({
-    map: beamTexture(aniso, len / 4, '#7d5f3e'),
+    map: beamTexture(aniso, len / 4, '#7d5f3e', texMax),
     color: 0xc9a06a,
     roughness: 0.55,
     metalness: 0,
     envMapIntensity: 0.4,
   });
   const rugMat = new THREE.MeshStandardMaterial({
-    map: rugTexture(aniso),
+    map: rugTexture(aniso, texMax),
     roughness: 0.95,
     envMapIntensity: 0.12,
     polygonOffset: true,
@@ -465,11 +467,13 @@ export function createScene(
   floor.rotation.x = -Math.PI / 2;
 
   // ---- Tapis par salle (un par zone, sous le chemin de visite) ----
+  // Chaque salle a sa teinte de tapis : la séparation entre catégories se lit au sol.
+  const RUG_TINTS = [0xffffff, 0xd9c6a8, 0xb7c6cc, 0xcbb9a4, 0xa9bfa6, 0xd3b8b8];
   const RUG_X = -2.3;
   const RUG_W = 3.0;
-  for (const zone of layout.zones) {
+  layout.zones.forEach((zone, zi) => {
     const rugLen = zone.zMax - zone.zMin - 1.6;
-    if (rugLen < 2) continue;
+    if (rugLen < 2) return;
     const rugZ = (zone.zMin + zone.zMax) / 2;
     const geo = new THREE.PlaneGeometry(RUG_W, rugLen);
     // tuile de 2,6 m dans les deux directions (échelle UV, pas de repeat sur la texture)
@@ -478,7 +482,9 @@ export function createScene(
       uv.setXY(i, uv.getX(i) * (RUG_W / RUG_TILE), uv.getY(i) * (rugLen / RUG_TILE));
     }
     uv.needsUpdate = true;
-    const rug = add(geo, rugMat, RUG_X, 0.006, rugZ);
+    const mat = rugMat.clone();
+    mat.color.set(RUG_TINTS[zi % RUG_TINTS.length]);
+    const rug = add(geo, mat, RUG_X, 0.006, rugZ);
     rug.rotation.x = -Math.PI / 2;
     // baguette de bordure (géométrie, pas dans la texture → pas de couture)
     const e = 0.045;
@@ -486,7 +492,7 @@ export function createScene(
     add(new THREE.BoxGeometry(RUG_W + e * 2, 0.012, e), rugEdge, RUG_X, 0.007, rugZ + rugLen / 2);
     add(new THREE.BoxGeometry(e, 0.012, rugLen), rugEdge, RUG_X - RUG_W / 2, 0.007, rugZ);
     add(new THREE.BoxGeometry(e, 0.012, rugLen), rugEdge, RUG_X + RUG_W / 2, 0.007, rugZ);
-  }
+  });
 
   // ---- Dalle de plafond avec trémie (la lumière entre par l'ouverture) ----
   const skylightW = HALL_WIDTH * 0.42;
@@ -518,9 +524,9 @@ export function createScene(
       color: 0xe8edf2,
       emissive: 0xfffdf2,
       emissiveMap: skylightEmissiveTexture(),
-      // 1,05 : le cœur de la dalle dépasse à peine le seuil de bloom (1,0) → halo doux,
-      // sans la dalle blanche brûlée d'avant (P1-6).
-      emissiveIntensity: 1.05,
+      // 0,6 : sous le seuil de bloom → la verrière reste un ciel clair, sans halo ni
+      // dalle blanche brûlée au fond du hall (il n'y a plus de brouillard pour voiler).
+      emissiveIntensity: 0.6,
       roughness: 0.15,
       metalness: 0.05,
       envMapIntensity: 0.15,
@@ -627,7 +633,7 @@ export function createScene(
   }
 
   // ---- Mobilier (bancs, socles, plantes, console) — positions partagées avec physics.ts ----
-  scene.add(buildFurniture(layout, furnitureMaterials(aniso), opts.shadows));
+  scene.add(buildFurniture(layout, furnitureMaterials(aniso, texMax), opts.shadows));
 
   // ---- Panneau du artiste sur le mur du fond ----
   if (opts.artist) {
@@ -648,7 +654,7 @@ export function createScene(
     for (const m of [p1, p2, lintel]) m.castShadow = opts.shadows;
     const zone = portal.zoneIndex >= 0 ? layout.zones[portal.zoneIndex] : undefined;
     const plaque = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.3, 0.32),
+      new THREE.PlaneGeometry(1.8, 0.42),
       new THREE.MeshBasicMaterial({ map: plaqueTexture(zone?.name ?? '') }),
     );
     // posée SUR la face du linteau (pas dans l'ouverture), face +z = côté visiteur

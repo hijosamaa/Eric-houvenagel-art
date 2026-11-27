@@ -105,7 +105,9 @@ async function boot(): Promise<void> {
   const touch = coarse || small;
   const viewDist = touch ? 4.2 : 2.85;
   const layout = computeLayout(data, viewDist);
-  const pixelRatio = Math.min(window.devicePixelRatio, touch ? 1.5 : 2);
+  // dpr 2 partout (y compris mobile) : c'est la densité de pixels qui lisse les lignes
+  // droites (cadres, cimaise) quand on se rapproche d'une œuvre.
+  const pixelRatio = Math.min(window.devicePixelRatio, 2);
   const shadows = !coarse;
   const { renderer, scene, camera, sun, spots } = createScene(canvas, layout, pixelRatio, {
     shadows,
@@ -113,7 +115,7 @@ async function boot(): Promise<void> {
     artist: data.artist,
   });
   const entries = buildPaintings(scene, layout, shadows);
-  const texAniso = touch ? 4 : 8;
+  const texAniso = 8;
 
   const spacer = document.getElementById('scroll-spacer') as HTMLDivElement;
   spacer.style.height = `${Math.round((data.works.length * 1.15 + 1.8) * 100)}vh`;
@@ -217,6 +219,26 @@ async function boot(): Promise<void> {
     else controls.focusOn(p);
   }
 
+  /**
+   * Saut au début d'une salle (barre « Salles », segment de la minimap, touche 1–9,
+   * plaque de portail) : ferme les overlays, puis scroll/focus sur la 1ère œuvre
+   * de la zone — jamais de traversée des 150 m du hall d'un bloc.
+   */
+  function goToZone(zi: number): void {
+    const zone = layout.zones[zi];
+    if (!zone) return;
+    const first = layout.placed.find((p) => p.work.room === zone.id);
+    if (!first) return;
+    if (ui.lightboxIsOpen()) ui.closeLightbox();
+    if (ui.indexIsOpen()) ui.closeIndex();
+    if (ui.panelIsOpen()) {
+      ui.closePanel();
+      panelWork = null;
+    }
+    if (controls.mode === 'guided') controls.scrollToWork(first);
+    else controls.focusOn(first);
+  }
+
   function progressT(camZ: number): number {
     if (controls.mode === 'guided') {
       const spacerEl = document.getElementById('scroll-spacer');
@@ -269,6 +291,8 @@ async function boot(): Promise<void> {
     }))
     .filter((g) => g.works.length > 0);
   ui.buildIndex(groups, base, (p) => focusWork(p));
+  ui.buildRooms(layout.zones.map((z) => ({ name: z.name })), (zi) => goToZone(zi));
+  minimap.onZonePick = (zi) => goToZone(zi);
 
   if (!fine) {
     (document.getElementById('btn-free') as HTMLButtonElement).style.display = 'none';
@@ -314,6 +338,13 @@ async function boot(): Promise<void> {
     if (e.code === 'Enter' && !entered) {
       const b = document.getElementById('btn-enter') as HTMLButtonElement | null;
       if (b && !b.disabled) b.click();
+      return;
+    }
+    // touches 1–9 : saut direct à la salle N
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (digit) {
+      const zi = Number(digit[1]) - 1;
+      if (zi < layout.zones.length) goToZone(zi);
       return;
     }
     if (ui.lightboxIsOpen()) {
@@ -387,6 +418,7 @@ async function boot(): Promise<void> {
   window.scrollTo(0, 0);
 
   let captionIdx = -1;
+  let activeZoneIdx = -2;
   const clock = new THREE.Clock();
   // Raycaster réutilisé pour le hover (champ unique) + BVH firstHitOnly (boundsTree sur les tableaux)
   const ray = new THREE.Raycaster();
@@ -462,6 +494,13 @@ async function boot(): Promise<void> {
     }
     if (panelWork && Math.abs(camZ - panelWork.z) <= 3.2) panelTravelUntil = 0;
     minimap.update(camZ, cur?.work.id ?? null);
+    // indicateur de salle (cartel + chip actif) — même logique de zone que minimap.update
+    const zi = layout.zones.findIndex((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
+    if (zi !== activeZoneIdx) {
+      activeZoneIdx = zi;
+      ui.setActiveRoom(zi);
+      ui.setRoomLabel(zi >= 0 ? `Salle ${zi + 1}/${layout.zones.length} · ${layout.zones[zi].name}` : '');
+    }
     if (post) post.render(dt);
     else renderer.render(scene, camera);
     requestAnimationFrame(tick);

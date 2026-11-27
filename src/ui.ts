@@ -96,6 +96,12 @@ export interface UICallbacks {
 export interface UI {
   /** Légende du cartel : titre de l'œuvre courante + méta en une ligne. */
   setCaption(title: string, meta: string): void;
+  /** Ligne « Salle 2/5 · Marines & Bretagne » au-dessus du titre du cartel. */
+  setRoomLabel(text: string): void;
+  /** Barre des salles (haut droit) : construit un chip par salle. */
+  buildRooms(rooms: { name: string }[], onPick: (zoneIndex: number) => void): void;
+  /** Salle active dans la barre (index −1 = aucune). */
+  setActiveRoom(zoneIndex: number): void;
   setProgressBar(t: number): void;
   toast(msg: string, ms?: number): void;
   hideToast(): void;
@@ -255,6 +261,37 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       const m = $('cap-meta');
       if (t.textContent !== title) t.textContent = title;
       if (m.textContent !== meta) m.textContent = meta;
+    },
+    setRoomLabel(text) {
+      const el = $('cap-room');
+      if (el.textContent !== text) el.textContent = text;
+      el.classList.toggle('empty', text === '');
+    },
+    buildRooms(rooms, onPick) {
+      const bar = $('rooms-bar');
+      bar.innerHTML = '';
+      rooms.forEach((r, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'room-chip';
+        b.setAttribute('aria-label', `Aller à la salle ${r.name}`);
+        const num = document.createElement('span');
+        num.className = 'room-num';
+        num.textContent = String(i + 1);
+        const name = document.createElement('span');
+        name.className = 'room-name';
+        name.textContent = r.name;
+        b.appendChild(num);
+        b.appendChild(name);
+        b.addEventListener('click', () => onPick(i));
+        bar.appendChild(b);
+      });
+    },
+    setActiveRoom(zoneIndex) {
+      const chips = $('rooms-bar').children;
+      for (let i = 0; i < chips.length; i++) {
+        chips[i].classList.toggle('active', i === zoneIndex);
+      }
     },
     setProgressBar(t) {
       $('progress-fill').style.width = `${Math.round(t * 100)}%`;

@@ -32,19 +32,19 @@ export const ROOF_LAYER = 1;
 /** Couche technique servant uniquement à « déverrouiller » le masque des shadow maps de spots. */
 export const SPOT_SHADOW_LAYER = 2;
 
-/** Hémisphérique : remplissage minimal, l'indirect vient de l'occlusion (audit §3.1). */
+/** Hémisphérique « jour » : ciel bleuté doux, sol chaud — lumière naturelle ambiante. */
 export const HEMI = {
-  sky: 0xf3e9d6,
-  ground: 0xbfae92,
-  intensity: 0.1,
-  /** Repli mobile (pas de RectAreaLight) : audit §5.2.3 — jamais sous le desktop. */
-  coarseIntensity: 0.28,
+  sky: 0xdfeaf6,
+  ground: 0xcbb99b,
+  intensity: 0.5,
+  /** Repli mobile (pas de RectAreaLight) : jamais sous le desktop. */
+  coarseIntensity: 0.6,
 } as const;
 
-/** Soleil : la lumière n'entre plus que par la trémie, il faut donc plus de puissance. */
+/** Soleil « plein jour » : blanc chaud, assez puissant pour la trame de la verrière. */
 export const SUN = {
-  color: 0xffedd2,
-  intensity: 2.0,
+  color: 0xfff2e2,
+  intensity: 2.6,
   /** Élévation ≈ 77°, décalage de la tache ≈ 0,6 m pour que la trame « tombe » dans le champ. */
   position: { x: 1.6, y: 12, z: -2.2 },
   shadow: {
@@ -62,8 +62,8 @@ export const SUN = {
 
 /** Ciel diffus de la trémie (substitut de ciel, sans ombre ni CSM). Desktop uniquement. */
 export const SKY_FILL = {
-  color: 0xeef4fc,
-  intensity: 1.2,
+  color: 0xf2f7fd,
+  intensity: 1.3,
   width: 5.04,
   height: 23.97,
   y: 3.3,
@@ -74,8 +74,8 @@ export const SKY_FILL = {
 /** Spots « tableau » : un par œuvre, dans le luminaire (P0-2 / P1-5). */
 export const TABLE_SPOT = {
   color: 0xffe9c8,
-  /** Candélas (three utilise l'unité physique). 1,6 cd à ~1 m → irradiance ≈ 1,6 : lavage doux, pas d'aplat. */
-  intensity: 1.6,
+  /** Candélas (three utilise l'unité physique). 1,8 cd à ~1 m → irradiance ≈ 1,8 : lavage doux, pas d'aplat. */
+  intensity: 1.8,
   distance: 4,
   /** Cône moyen + pénombre large : la toile est couverte, le mur autour reste en pénombre (pas de boule). */
   angle: 1.0,
@@ -83,10 +83,17 @@ export const TABLE_SPOT = {
   decay: 2.0,
   /** Le survol est porté par la lumière, plus par l'émissif de la toile (P0-3). */
   hoverBoost: 0.4,
-  /** Hystérésis d'affectation : un spot installé ne bouge pas pour moins de 0,9 m. */
-  hysteresis: 0.9,
-  /** Fondu d'allumage / extinction, en secondes (350 ms). */
-  fade: 0.35,
+  /** Hystérésis d'affectation : un spot installé ne bouge pas pour moins de 1,2 m. */
+  hysteresis: 1.2,
+  /** Fondu d'allumage / extinction, en secondes (800 ms : aucun clignotement visible). */
+  fade: 0.8,
+  /**
+   * Modulation douce par distance : un spot du pool pointé sur une œuvre éloignée
+   * brille moins (jamais à 0) → la lumière glisse d'un tableau à l'autre au lieu
+   * de sauter (le « tout ou rien » à 1 spot mobile était illisible).
+   */
+  distFadeMin: 0.35,
+  distFadeRange: 7,
   shadowMapSize: 512,
   shadowNear: 0.05,
 } as const;
@@ -216,7 +223,11 @@ export class TableSpots {
       s.position.set(p.x + p.faceX * FRAME_METRICS.spotZ, p.y + FRAME_METRICS.spotY, p.z);
       s.target.position.set(p.x + p.faceX * 0.06, p.y + FRAME_METRICS.targetY, p.z);
       s.target.updateMatrixWorld();
-      s.intensity = (TABLE_SPOT.intensity + (idx === this.hoverIndex ? TABLE_SPOT.hoverBoost : 0)) * ease(this.blend[i]);
+      // fondu d'affectation × atténuation douce par distance : jamais de coupure nette
+      const d = Math.abs(p.z - camZ);
+      const distFade = Math.min(1, Math.max(TABLE_SPOT.distFadeMin, 1.25 - d / TABLE_SPOT.distFadeRange));
+      s.intensity =
+        (TABLE_SPOT.intensity + (idx === this.hoverIndex ? TABLE_SPOT.hoverBoost : 0)) * ease(this.blend[i]) * distFade;
       // Le premier slot projette, les autres non (1 seule passe d'ombre de spot).
       s.castShadow = this.shadows && i === 0 && this.blend[i] > 0.5;
     }

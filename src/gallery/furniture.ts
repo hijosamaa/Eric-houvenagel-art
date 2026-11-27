@@ -115,10 +115,10 @@ export interface FurnitureMaterials {
   ceramic: THREE.MeshPhysicalMaterial;
 }
 
-export function furnitureMaterials(aniso: number): FurnitureMaterials {
+export function furnitureMaterials(aniso: number, maxSize = 2048): FurnitureMaterials {
   // chêne clair pour le mobilier (la texture 'beam' de base est sombre : on éclaircit
   // par la couleur du matériau ; une version IA dans ai/beam.webp remplacera les deux)
-  const woodMap = beamTexture(aniso, 2.2, '#8a6a48');
+  const woodMap = beamTexture(aniso, 2.2, '#8a6a48', maxSize);
   return {
     wood: new THREE.MeshStandardMaterial({ map: woodMap, color: 0xe9d3ae, roughness: 0.5, metalness: 0.0, envMapIntensity: 0.5 }),
     steel: new THREE.MeshStandardMaterial({ color: 0x2c2925, roughness: 0.42, metalness: 0.85, envMapIntensity: 0.9 }),
