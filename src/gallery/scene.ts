@@ -553,10 +553,27 @@ export function createScene(
     add(new THREE.BoxGeometry(skylightW, 0.08, 0.035), bronze, 0, memberY, z, { cast: true, layer: ROOF_LAYER });
   }
 
-  // ---- Poutres longitudinales en chêne sombre encadrant la verrière ----
-  const beamX = skylightW / 2 + 0.24;
-  add(new THREE.BoxGeometry(0.18, 0.26, len), beamMat, -beamX, HALL_HEIGHT - 0.13, cz, { cast: true });
-  add(new THREE.BoxGeometry(0.18, 0.26, len), beamMat, beamX, HALL_HEIGHT - 0.13, cz, { cast: true });
+  // ---- Charpente en chêne : poutres transversales flanquant la verrière + sablières ----
+  // (remplace les 2 longues poutres longitudinales qui se lisaient comme des rails :
+  //  une vraie charpente croise la largeur ; la verrière se glisse entre les poutres)
+  const beamW = HALL_WIDTH / 2 - skylightW / 2 - 0.05; // segment mur → bord de verrière
+  const transTex = beamTexture(aniso, 1, '#7d5f3e', texMax);
+  transTex.repeat.set(beamW / 4, 1); // veine sur ~4 m de long
+  const beamTransMat = new THREE.MeshStandardMaterial({
+    map: transTex,
+    color: 0xc9a06a,
+    roughness: 0.55,
+    metalness: 0,
+    envMapIntensity: 0.4,
+  });
+  for (let z = zMin + 1.7; z < zMax - 1.0; z += 3.5) {
+    add(new THREE.BoxGeometry(beamW, 0.26, 0.17), beamTransMat, -(skylightW / 2 + beamW / 2 + 0.025), HALL_HEIGHT - 0.13, z, { cast: true });
+    add(new THREE.BoxGeometry(beamW, 0.26, 0.17), beamTransMat, skylightW / 2 + beamW / 2 + 0.025, HALL_HEIGHT - 0.13, z, { cast: true });
+  }
+  // sablières longitudinales contre les murs : reçoivent les extrémités des poutres
+  const sabX = HALL_WIDTH / 2 - 0.155;
+  add(new THREE.BoxGeometry(0.16, 0.22, len), beamMat, -sabX, HALL_HEIGHT - 0.11, cz, { cast: true });
+  add(new THREE.BoxGeometry(0.16, 0.22, len), beamMat, sabX, HALL_HEIGHT - 0.11, cz, { cast: true });
 
   // Moulures en relief (extrudées) : couronne en haut, plinthe en bas
   const inner = HALL_WIDTH / 2 - 0.125;
