@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Tween, Easing, Group } from '@tweenjs/tween.js';
 
-import { HALL_WIDTH, WALL_Y, cameraPath, createDwellCurve, pathXAt, portalPositions, type Layout, type PlacedWork } from './layout';
+import { EYE_Y, WALL_T, createDwellCurve, type Layout, type PlacedWork, type Room } from './layout';
 
 import { createPhysics, type PhysicsWorld } from './physics';
 
@@ -9,6 +9,8 @@ export type Mode = 'guided' | 'free';
 
 /** Durée du trajet caméra « focus » en mode libre (ms) — easing Cubic.Out (voir focusOn). */
 const FOCUS_DURATION_MS = 700;
+/** Rayon de sécurité du fallback AABB (capsule 0,35 m + marge). */
+const BODY_R = 0.36;
 
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
@@ -27,6 +29,12 @@ interface FocusState {
   pitch: number;
 }
 
+export interface CameraPose {
+  x: number;
+  z: number;
+  yaw: number;
+}
+
 export class GalleryControls {
   mode: Mode = 'guided';
   reduced = false;
@@ -41,15 +49,14 @@ export class GalleryControls {
 
   private readonly camera: THREE.PerspectiveCamera;
   private readonly layout: Layout;
-  private readonly pathZFirst: number;
-  private readonly pathZLast: number;
-  /** Courbe de « dwell » (layout.ts, rebuild.md §4) : arrêts devant chaque œuvre — repli linéaire si `reduced`. */
+  /** Courbe de « dwell » : arrêts devant chaque œuvre. Repli linéaire si `reduced`. */
   private readonly dwell: (t: number) => number;
   private readonly pos: THREE.Vector3;
-  private readonly lookVec: THREE.Vector3;
   private readonly raycaster = new THREE.Raycaster();
   private targetT = 0;
   private t = 0;
+  /** Cap effectivement appliqué (le tracé donne la consigne, la caméra la rejoint). */
+  private viewYaw = 0;
   private yaw = 0;
   private pitch = 0;
   private readonly keys = new Set<string>();
@@ -57,7 +64,7 @@ export class GalleryControls {
   private focusTween: Tween<FocusState> | null = null;
   // Groupe tween.js dédié (v25 : new Tween(obj) sans groupe n'est PAS ajouté au groupe global)
   private readonly tweenGroup = new Group();
-  // Physique du mode libre (Rapier, chargement lazy au 1er setMode('free')) — null = fallback clamps
+  // Physique du mode libre (Rapier, chargement lazy au 1er setMode('free')) — null = fallback
   private physics: PhysicsWorld | null = null;
   private physicsPromise: Promise<PhysicsWorld | null> | null = null;
 
@@ -65,21 +72,12 @@ export class GalleryControls {
     this.camera = camera;
     this.layout = layout;
     // Raycaster réutilisé (créé une seule fois) + BVH : ne garde que le 1er hit
-    // (voir three-mesh-bvh dans paintings.ts, acceleratedRaycast).
     this.raycaster.firstHitOnly = true;
 
-    this.pos = new THREE.Vector3(layout.placed[0]?.viewX ?? 0, 1.6, layout.zFront - 1.1);
-    this.lookVec = new THREE.Vector3(this.pos.x, WALL_Y, this.pos.z - 4);
-    // Trajet caméra = lerp en z (les points de l'ancien tracé étaient colinéaires) piloté
-    // par la courbe de « dwell » : camZ = lerp(zFirst, zLast, dwell(t)).
-    const path = cameraPath(layout);
-    this.pathZFirst = path.zFirst;
-    this.pathZLast = path.zLast;
-    this.dwell = createDwellCurve(path.centers);
-    // scrollT = centre du palier dwell de l'œuvre : scrollToWork pose la caméra exactement devant la toile
-    layout.placed.forEach((p, i) => {
-      p.scrollT = path.centers[i];
-    });
+    const start = layout.at(0);
+    this.pos = new THREE.Vector3(start.x, EYE_Y, start.z);
+    this.viewYaw = start.yaw;
+    this.dwell = createDwellCurve(layout.placed.map((p) => p.scrollT));
 
     window.addEventListener('scroll', () => this.readScroll(), { passive: true });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -104,49 +102,58 @@ export class GalleryControls {
       }
     });
     window.addEventListener('pointerup', (e) => {
-      const start = this.drag;
+      const start2 = this.drag;
       this.drag = null;
-      if (!start) return;
-      if (Math.hypot(e.clientX - start.ox, e.clientY - start.oy) < 8) {
-        this.tap(e.clientX, e.clientY, canvas, start.dist);
+      if (!start2) return;
+      if (Math.hypot(e.clientX - start2.ox, e.clientY - start2.oy) < 8) {
+        this.tap(e.clientX, e.clientY, canvas, start2.dist);
       }
     });
 
     this.readScroll();
   }
 
-  currentZ(): number {
-    return this.pos.z;
+  /** Position courante de la caméra (mode guidé ou libre). */
+  currentPos(): { x: number; z: number } {
+    return { x: this.pos.x, z: this.pos.z };
+  }
+
+  /** Avancement du parcours guidé, 0..1 (suit le scroll). */
+  currentT(): number {
+    return this.t;
+  }
+
+  /** Instantané du cap appliqué (utilisé par les tests et l'indicateur de salle). */
+  currentPose(): CameraPose {
+    return { x: this.pos.x, z: this.pos.z, yaw: this.viewYaw };
   }
 
   setMode(mode: Mode): void {
     this.mode = mode;
-    // tue tout tween de focus en cours (équivalent de l'ancien focusAnim = null)
     this.focusTween?.stop();
     this.focusTween = null;
     if (mode === 'free') {
-      this.yaw = 0;
+      this.yaw = this.viewYaw;
       this.pitch = 0;
       document.documentElement.style.overflow = 'hidden';
-      this.camera.position.set(this.pos.x, 1.6, this.pos.z);
+      this.camera.position.set(this.pos.x, EYE_Y, this.pos.z);
       // chargement lazy du chunk rapier au premier passage en mode libre
       void this.ensurePhysics();
     } else {
       document.documentElement.style.overflow = '';
       // Retour au guidé : on **reprojette la position courante sur le parcours** avant de
-      // relire le scroll. Sans cela, `readScroll()` repartait du `scrollY` figé et la
-      // caméra sautait à l'entrée (73 m perdus en quittant la visite libre au fond).
-      const z = this.camera.position.z;
-      const t = clamp((this.pathZFirst - z) / (this.pathZFirst - this.pathZLast), 0, 1);
+      // relire le scroll. Sans cela, la caméra sautait à l'entrée en quittant la libre.
+      const t = this.tForPos(this.pos.x, this.pos.z);
+      this.t = t;
+      this.targetT = t;
       const spacer = document.getElementById('scroll-spacer');
       const max = spacer ? spacer.offsetHeight - window.innerHeight : 0;
       if (max > 0) window.scrollTo({ top: t * max, behavior: 'auto' });
-      this.pos.copy(this.camera.position);
       this.readScroll();
     }
   }
 
-  /** Charge Rapier une seule fois (au 1er mode libre) ; en cas d'échec, physics reste null → clamps. */
+  /** Charge Rapier une seule fois (au 1er mode libre) ; en cas d'échec, physics reste null. */
   private async ensurePhysics(): Promise<void> {
     if (this.physics || this.physicsPromise) return;
     this.physicsPromise = createPhysics(this.layout);
@@ -159,17 +166,42 @@ export class GalleryControls {
     if (this.physics) this.physics.setPos(this.pos.x, this.pos.z);
   }
 
+  /**
+   * Projection d'une position libre sur le parcours : on cherche l'échantillon le plus
+   * proche, puis on inverse la courbe de dwell pour retrouver le t de scroll
+   * correspondant (dwell est monotone, une dichotomie de 40 tours suffit).
+   */
+  tForPos(x: number, z: number): number {
+    const path = this.layout.path;
+    if (path.length === 0) return 0;
+    let best = path[0];
+    let bd = Infinity;
+    for (const n of path) {
+      const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }
+    const u = clamp(best.s / Math.max(1e-6, this.layout.length), 0, 1);
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (this.dwell(mid) < u) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
   focusOn(p: PlacedWork): void {
     const pos = this.camera.position;
     // en mode libre, téléporte aussi la capsule physique sur la cible du focus
     if (this.mode === 'free') this.physics?.setPos(p.viewX, p.viewZ);
-    let targetYaw = Math.atan2(-(p.x - pos.x), -(p.z - pos.z));
-    // chemin angulaire le plus court (comme l'ancien angLerp)
-    targetYaw = this.yaw + angDiff(this.yaw, targetYaw);
+    const targetYaw = this.yaw + angDiff(this.yaw, Math.atan2(-(p.x - pos.x), -(p.z - pos.z)));
     const target: FocusState = { x: p.viewX, z: p.viewZ, yaw: targetYaw, pitch: 0.03 };
     this.focusTween?.stop();
     if (this.reduced) {
-      // prefers-reduced-motion : saut direct, aucune animation (duration 0)
       pos.x = target.x;
       pos.z = target.z;
       this.yaw = target.yaw;
@@ -177,12 +209,16 @@ export class GalleryControls {
       this.focusTween = null;
       return;
     }
-    // En mode libre, si la cible est de l'autre côté du hall, passer par un waypoint
-    // l'axe médian, au z de la cible : sinon la ligne droite traverse murs et mobilier.
-    const legs: FocusState[] =
-      this.mode === 'free' && Math.abs(pos.x - p.viewX) > 2.5
-        ? [{ x: 0, z: p.viewZ, yaw: 0, pitch: this.pitch }, target]
-        : [target];
+    // Un seul tronçon : les salles sont traversées par les baies, dans l'axe. Si la cible
+    // est dans une autre pièce, on passe par le centre du sas — jamais à travers un mur.
+    const inSameRoom = this.layout.rooms.some(
+      (r) =>
+        p.viewX > r.rect.x0 && p.viewX < r.rect.x1 && p.viewZ > r.rect.z0 && p.viewZ < r.rect.z1 &&
+        pos.x > r.rect.x0 && pos.x < r.rect.x1 && pos.z > r.rect.z0 && pos.z < r.rect.z1,
+    );
+    const legs: FocusState[] = inSameRoom
+      ? [target]
+      : [{ x: 0, z: 0, yaw: Math.atan2(-(0 - pos.x), -(0 - pos.z)), pitch: this.pitch }, target];
     let leg = 0;
     const startLeg = (): void => {
       const from: FocusState = { x: pos.x, z: pos.z, yaw: this.yaw, pitch: this.pitch };
@@ -206,121 +242,103 @@ export class GalleryControls {
   }
 
   scrollToWork(p: PlacedWork): void {
+    this.scrollToT(p.scrollT);
+  }
+
+  /** Déplace le scroll pour amener le parcours guidé au point t. */
+  scrollToT(u: number): void {
     const spacer = document.getElementById('scroll-spacer');
     if (!spacer) return;
     const max = spacer.offsetHeight - window.innerHeight;
     if (max <= 0) return;
-    window.scrollTo({ top: p.scrollT * max, behavior: this.reduced ? 'auto' : 'smooth' });
+    window.scrollTo({ top: clamp(u, 0, 1) * max, behavior: this.reduced ? 'auto' : 'smooth' });
   }
 
   update(dt: number): void {
-    // Pilote les tweens du groupe dédié (Group.update() sans argument = now()) — appelé à
-    // chaque frame depuis la boucle tick() de main.ts via controls.update(dt).
+    // Pilote les tweens du groupe dédié (Group.update() sans argument = now()).
     this.tweenGroup.update();
 
     if (this.mode === 'guided') {
       if (this.reduced) this.t = this.targetT;
       else this.t += (this.targetT - this.t) * Math.min(1, dt * 7.5);
-      // Rythme « dwell » (rebuild.md §4) : camZ = lerp(zFirst, zLast, dwell(t)) — la caméra
-      // s'arrête devant chaque œuvre. Repli linéaire en prefers-reduced-motion. progressT()
-      // et la détection de fin (main.ts) ne bougent pas : elles lisent le scroll / camZ.
+      // Rythme « dwell » : u = dwell(t) — la caméra s'arrête devant chaque œuvre.
       const tt = clamp(this.t, 0, 1);
-      const d = this.reduced ? tt : this.dwell(tt);
-      const cz = this.pathZFirst + (this.pathZLast - this.pathZFirst) * d;
-      // x suit le mur de l'œuvre courante : la caméra se décale d'un mur à l'autre au lieu
-      // de longer une paroi unique.
-      this.pos.set(pathXAt(this.layout, cz), 1.6, cz);
-      // défense en profondeur : jamais derrière le mur du fond
-      this.pos.z = Math.max(this.pos.z, this.layout.zEnd + 1);
+      const u = this.reduced ? tt : this.dwell(tt);
+      const pose = this.layout.at(u);
+      this.pos.set(pose.x, EYE_Y, pose.z);
       this.camera.position.copy(this.pos);
-      const k = this.reduced ? 1 : Math.min(1, dt * 3);
-      this.lookVec.lerp(this.lookTarget(), k);
-      this.camera.lookAt(this.lookVec);
+      // Le cap suit le tracé ; on amortit la rotation sur 70 ms pour que les virages
+      // restent des virages et non des à-coups (sans jamais décaler la position).
+      this.viewYaw += angDiff(this.viewYaw, pose.yaw) * (this.reduced ? 1 : Math.min(1, dt * 14));
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.set(0, this.viewYaw, 0);
     } else {
       const pos = this.camera.position;
       if (!this.focusTween) {
-        // mouvement clavier (WASD) uniquement hors trajet focus
+        // mouvement clavier (WASD / ZQSD) uniquement hors trajet focus
         const speed = 3.4 * dt;
         const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
         const r = new THREE.Vector3(-f.z, 0, f.x);
         let dx = 0;
         let dz = 0;
-        if (this.keys.has('KeyW')) { dx += f.x * speed; dz += f.z * speed; }
+        if (this.keys.has('KeyW') || this.keys.has('KeyZ')) { dx += f.x * speed; dz += f.z * speed; }
         if (this.keys.has('KeyS')) { dx -= f.x * speed; dz -= f.z * speed; }
-        if (this.keys.has('KeyA')) { dx -= r.x * speed; dz -= r.z * speed; }
+        if (this.keys.has('KeyA') || this.keys.has('KeyQ')) { dx -= r.x * speed; dz -= r.z * speed; }
         if (this.keys.has('KeyD')) { dx += r.x * speed; dz += r.z * speed; }
         if (this.physics) {
-          // character controller Rapier : collisions murs/bancs/portails/tableaux + glissement
           const np = this.physics.move(dx, dz);
           pos.x = np.x;
           pos.z = np.z;
         } else {
-          // fallback (Rapier indisponible, ex. ?nophys=1) : clamps AABB manuels
-          pos.x += dx;
-          pos.z += dz;
+          // fallback (Rapier indisponible, ex. ?nophys=1) : résolution AABB sur layout.walls
+          const np = this.resolveWalls(pos.x + dx, pos.z + dz);
+          pos.x = np.x;
+          pos.z = np.z;
         }
       }
-      // clamp de secours, aligné sur les bornes physiques (mur intérieur ±(HALL_WIDTH/2-0.125),
-      // capsule r=0.35, marge 0.02 → ±5.505) pour que fallback et physics aient les mêmes limites
-      const xLimit = HALL_WIDTH / 2 - 0.5;
-      pos.x = clamp(pos.x, -xLimit, xLimit);
-      pos.z = clamp(pos.z, this.layout.zBack + 1, this.layout.zFront + 0.6);
-      pos.y = 1.6;
+      pos.y = EYE_Y;
       this.pos.copy(pos);
+      this.viewYaw = this.yaw;
       this.camera.rotation.order = 'YXZ';
       this.camera.rotation.set(this.pitch, this.yaw, 0);
     }
   }
 
   /**
-   * Point visé par la caméra guidée : l'œuvre la plus proche, avec un **rabattement vers
-   * l'axe** quand on en est encore loin.
-   *
-   * Les toiles occupent les deux murs : viser directement une œuvre située à 5 m et
-   * 3,4 m de côté ferait passer le regard à travers le trumeau du seuil (on ne voyait
-   * qu'un mur blanc en arrivant dans le sas). Au-delà de 6,5 m, on regarde donc droit
-   * devant soi — par le passage — et l'on tourne vers la toile en approchant.
+   * Repli sans Rapier : pousse la position hors des murs (boîtes de `layout.walls`,
+   * gonflées du rayon du corps). Les baies sont des trous dans cette liste, donc on les
+   * franchit sans code particulier.
    */
-  private lookTarget(): THREE.Vector3 {
-    const ps = this.layout.placed;
-    if (ps.length === 0) return new THREE.Vector3(0, WALL_Y, this.pos.z - 4);
-    // Dans le sas, on regarde droit devant : c'est la vue d'entrée (le passage, puis la
-    // première salle). Viser une toile latérale depuis le sas cadrait le trumeau.
-    const lobby = this.layout.zones.find((z) => z.lobby);
-    if (lobby && this.pos.z > lobby.zMin) {
-      return new THREE.Vector3(0, WALL_Y, this.pos.z - 6);
-    }
-    let best = ps[0];
-    let bd = Infinity;
-    for (const p of ps) {
-      const d = Math.abs(p.z - this.pos.z);
-      if (d < bd) {
-        bd = d;
-        best = p;
+  private resolveWalls(x: number, z: number): { x: number; z: number } {
+    for (let pass = 0; pass < 3; pass++) {
+      let moved = false;
+      for (const w of this.layout.walls) {
+        const L = w.to - w.from;
+        const hx = (w.dir === 'x' ? L / 2 : WALL_T / 2) + BODY_R;
+        const hz = (w.dir === 'x' ? WALL_T / 2 : L / 2) + BODY_R;
+        const cx = w.dir === 'x' ? (w.from + w.to) / 2 : w.at;
+        const cz = w.dir === 'x' ? w.at : (w.from + w.to) / 2;
+        const dx = x - cx;
+        const dz = z - cz;
+        if (Math.abs(dx) >= hx || Math.abs(dz) >= hz) continue;
+        const ox = hx - Math.abs(dx);
+        const oz = hz - Math.abs(dz);
+        if (ox < oz) x += Math.sign(dx || 1) * ox;
+        else z += Math.sign(dz || 1) * oz;
+        moved = true;
       }
+      if (!moved) break;
     }
-    // Rabattement vers l'axe selon la distance, puis **test de visée à travers les
-    // seuils** : si le segment caméra → œuvre traverse un mur de seuil hors de son
-    // ouverture, on réduit la composante latérale jusqu'à ce que le regard passe par la
-    // porte. Sans cela, en arrivant dans le sas, on ne voyait qu'un trumeau blanc.
-    const k = clamp((6.5 - bd) / 3.5, 0, 1);
-    let tx = best.x * k;
-    const cz = this.pos.z;
-    const dzTotal = cz - best.z;
-    if (dzTotal > 0.05) {
-      for (const portal of portalPositions(this.layout)) {
-        const zp = portal.z;
-        if (zp > cz || zp < best.z) continue;
-        const t = (cz - zp) / dzTotal;
-        const allowed = Math.max(0.35, portal.openingHalf - 0.45);
-        // x au niveau du seuil = x_cam + (tx - x_cam) · t
-        const xAtPortal = this.pos.x + (tx - this.pos.x) * t;
-        if (Math.abs(xAtPortal) > allowed && t > 1e-3) {
-          tx = this.pos.x + ((Math.sign(xAtPortal) * allowed - this.pos.x) / t);
-        }
-      }
+    return { x, z };
+  }
+
+  /** Salle contenant la caméra (pour l'affichage du nom). */
+  currentRoom(): Room {
+    const { x, z } = this.pos;
+    for (const r of this.layout.rooms) {
+      if (x >= r.rect.x0 && x <= r.rect.x1 && z >= r.rect.z0 && z <= r.rect.z1) return r;
     }
-    return new THREE.Vector3(tx, WALL_Y, best.z);
+    return this.layout.rooms[0];
   }
 
   private readScroll(): void {
@@ -347,7 +365,6 @@ export class GalleryControls {
       if (p) this.onPick?.(p);
       return;
     }
-    // plaque laiton d'un portail : saute à la 1ère œuvre de la salle suivante
     const zi = obj?.userData.zoneIndex as number | undefined;
     if (zi !== undefined) {
       this.onZonePick?.(zi);
@@ -365,6 +382,7 @@ export class GalleryControls {
     }
     if (this.mode === 'free') {
       this.keys.add(e.code);
+      this.onFreeKey?.(e.code);
       return;
     }
     if (e.code === 'ArrowRight' || e.code === 'ArrowDown' || e.code === 'PageDown' || e.code === 'Space') {
@@ -376,4 +394,7 @@ export class GalleryControls {
       this.onPrev?.();
     }
   }
+
+  /** Touche pressée en visite libre (main.ts s'en sert pour l'aide au clavier). */
+  onFreeKey: ((code: string) => void) | null = null;
 }

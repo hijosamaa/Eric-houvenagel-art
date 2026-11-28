@@ -6,16 +6,19 @@
  * (voir GalleryControls.ensurePhysics). En mode guidé, aucune requête réseau rapier.
  *
  * Les colliders fixes sont reconstruits depuis `layout` + les helpers partagés
- * (`portalPositions` de layout.ts, `furnitureColliders` de furniture.ts) : les mêmes
- * fonctions produisent les meshes de scene.ts, donc la physique colle toujours au visuel.
+ * (`layout.walls`, `furnitureColliders`, `plantColliders`) : les mêmes fonctions
+ * produisent les meshes de scene.ts, donc la physique colle toujours au visuel. Les
+ * baies ne sont pas des exceptions codées à part : elles sont des **trous dans la liste
+ * des murs**, donc on les traverse librement.
+ *
  * Le joueur est une capsule kinématique (rotations verrouillées, gravité 0 → vol
- * stationnaire à y = 1.6, même hauteur que la caméra).
+ * stationnaire à y = EYE_Y, même hauteur que la caméra).
  *
  * `move(dx, dz)` fait un sweep `world.castShape` + glissement le long des normales
  * (3 itérations), équivalent d'un character controller : la capsule est bloquée par
  * les murs/bancs/piliers/tableaux mais glisse le long des surfaces.
  */
-import { HALL_WIDTH, HALL_HEIGHT, hallBounds, portalPositions, type Layout } from './layout';
+import { EYE_Y, WALL_T, type Layout } from './layout';
 
 import { furnitureColliders } from './furniture';
 
@@ -37,7 +40,7 @@ export interface PhysicsWorld {
 }
 
 /** Hauteur des yeux = hauteur caméra en mode libre ; le body y est calé dessus. */
-export const PLAYER_Y = 1.6;
+export const PLAYER_Y = EYE_Y;
 /** Rayon de la capsule joueur. */
 const CAPSULE_RADIUS = 0.35;
 /** Demi-hauteur du cylindre de la capsule (~0.9 de haut pour le cylindre, 1.6 au total). */
@@ -45,7 +48,7 @@ const CAPSULE_HALF_HEIGHT = 0.45;
 /**
  * Décalage local du collider par rapport au body : pour un body à y = 1.6, la capsule
  * s'étend en y ∈ [0.05, 1.65] — assez bas pour être bloquée par les bancs (assise
- * à 0.495) et les piliers, assez haut sous le linteau des portails (bas à 2.95).
+ * à 0.495) et les piliers, assez haut sous le linteau des baies (bas à 2,78).
  */
 const CAPSULE_DROP = 0.75;
 /** Marge gardée entre la capsule et les obstacles pendant le sweep. */
@@ -61,57 +64,47 @@ class RapierWorld implements PhysicsWorld {
     // gravité 0 : vol stationnaire à y = PLAYER_Y (pas de condamnation y nécessaire)
     this.world = new RAPIER.World({ x: 0, y: 0, z: 0 });
 
-    const { zMin, zMax } = hallBounds(layout);
-    const len = zMax - zMin;
-    const cz = (zMin + zMax) / 2;
-
     // collider fixe (sans rigid body) : boîte de demi-extents (hx, hy, hz) centrée en (x, y, z)
     const fixed = (hx: number, hy: number, hz: number, x: number, y: number, z: number): void => {
       this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z));
     };
 
-    // murs latéraux (une hauteur par salle, mais un collider de hauteur max suffit :
-    // la capsule s'arrête à 1,65 m) + murs d'about
-    fixed(0.125, HALL_HEIGHT / 2, len / 2, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
-    fixed(0.125, HALL_HEIGHT / 2, len / 2, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
-    fixed((HALL_WIDTH + 0.5) / 2, HALL_HEIGHT / 2, 0.125, 0, HALL_HEIGHT / 2, zMax);
-    fixed((HALL_WIDTH + 0.5) / 2, HALL_HEIGHT / 2, 0.125, 0, HALL_HEIGHT / 2, zMin);
+    // ---- murs : un collider par tronçon, exactement ceux de scene.ts ----
+    for (const w of layout.walls) {
+      const L = w.to - w.from;
+      const h = w.y1 - w.y0;
+      if (L < 0.02 || h < 0.02) continue;
+      const hx = w.dir === 'x' ? L / 2 : WALL_T / 2;
+      const hz = w.dir === 'x' ? WALL_T / 2 : L / 2;
+      const x = w.dir === 'x' ? (w.from + w.to) / 2 : w.at;
+      const z = w.dir === 'x' ? w.at : (w.from + w.to) / 2;
+      fixed(hx, h / 2, hz, x, w.y0 + h / 2, z);
+    }
 
-    // mobilier (bancs, socles, plantes, console) : positions calculées UNE fois dans
-    // furniture.ts et partagées avec scene.ts — la physique ne peut pas diverger du visuel.
+    // ---- mobilier (bancs, socles, console) : positions partagées avec scene.ts ----
     for (const c of furnitureColliders(layout)) {
       fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
     }
-    // plantes : même source de positions que la végétation de scene.ts
+    // ---- plantes : même source de positions que la végétation de scene.ts ----
     for (const c of plantColliders(layout)) {
       fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
     }
 
-    // murs de seuil entre salles : deux trumeaux + linteau (mêmes cotes que scene.ts,
-    // via portalPositions : une seule source de vérité pour le visuel et la physique)
-    for (const portal of portalPositions(layout)) {
-      const z = portal.z;
-      const half = portal.openingHalf;
-      const jambW = HALL_WIDTH / 2 - half;
-      for (const sx of [-1, 1]) {
-        fixed(jambW / 2, portal.openingH / 2, 0.12, sx * (half + jambW / 2), portal.openingH / 2, z);
-      }
-      const lintelH = portal.height - portal.openingH;
-      if (lintelH > 0.05) {
-        fixed(half, lintelH / 2, 0.12, 0, portal.openingH + lintelH / 2, z);
-      }
-    }
-
-    // un collider par tableau : la largeur p.w s'étend selon z, la profondeur du cadre
-    // selon x (les toiles sont sur les deux murs) → hx=0.04, hz=(p.w+0.16)/2
+    // ---- toiles : une boîte par cadre, **tournée** comme le cadre (4 orientations) ----
     for (const p of layout.placed) {
-      fixed(0.04, (p.h + 0.16) / 2, (p.w + 0.16) / 2, p.x, p.y, p.z);
+      const q = new RAPIER.Quaternion(0, Math.sin(p.rotY / 2), 0, Math.cos(p.rotY / 2));
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid((p.w + 0.16) / 2, (p.h + 0.16) / 2, 0.045)
+          .setTranslation(p.x, p.y, p.z)
+          .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
+      );
     }
 
-    // joueur : rigid body kinématique (capsule), rotations verrouillées, y fixé à 1.6
+    // ---- joueur : rigid body kinématique (capsule), rotations verrouillées, y = EYE_Y ----
+    const start = layout.at(0);
     this.body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased()
-        .setTranslation(0, PLAYER_Y, layout.zFront - 1.2)
+        .setTranslation(start.x, PLAYER_Y, start.z)
         .lockRotations(),
     );
     this.collider = this.world.createCollider(

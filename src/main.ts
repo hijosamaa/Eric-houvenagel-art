@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import type { GalleryData } from './types';
 
-import { computeLayout, zoneAt, Z_START, type PlacedWork } from './gallery/layout';
+import { computeLayout, zoneAt, type PlacedWork } from './gallery/layout';
 
 import { updateSunShadow } from './gallery/lights';
 
@@ -147,8 +147,8 @@ async function boot(): Promise<void> {
   // Clic sur une plaque de portail -> focus sur la 1ère œuvre de la salle suivante
   controls.onZonePick = (zi) => {
     if (ui.endIsOpen()) return; // l'écran de fin laisse passer les clics (pointer-events:none)
-    const zone = layout.zones[zi];
-    const first = zone ? layout.placed.find((p) => p.roomName === zone.name) : undefined;
+    const zone = layout.rooms[zi];
+    const first = zone ? layout.placed.find((p) => p.roomId === zone.id) : undefined;
     if (first) focusWork(first);
   };
 
@@ -159,30 +159,45 @@ async function boot(): Promise<void> {
   let loaded = 0;
   let entered = false;
   let toastDismissed = false;
-  const nearEntries = entries.filter((e) => Math.abs(e.placed.z - Z_START) < 16);
+  const startPose = layout.at(0);
+  const nearEntries = entries.filter(
+    (e) => Math.hypot(e.placed.viewX - startPose.x, e.placed.viewZ - startPose.z) < 22,
+  );
   const total = Math.max(1, nearEntries.length);
 
   const clampIdx = (i: number): number => Math.min(Math.max(i, 0), layout.placed.length - 1);
-
-  // layout.placed est trié par z décroissant (z_i = Z_FIRST - i*SLOT_SPACING) :
-  // recherche binaire du nombre d'œuvres avec z > camZ, en O(log n) au lieu de O(n).
-  function currentIndex(camZ: number): number {
+  /**
+   * Œuvre « courante ». En guidé, c'est celle dont le palier de parcours est le plus
+   * proche : le long d'un tracé en U, la distance à vol d'oiseau désignerait la toile du
+   * mur d'en face qu'on ne regarde pas. En visite libre, on reprend la distance réelle.
+   */
+  function currentIndex(): number {
     const ps = layout.placed;
     if (ps.length === 0) return 0;
-    let lo = 0;
-    let hi = ps.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (ps[mid].z > camZ) lo = mid + 1;
-      else hi = mid;
+    if (controls.mode === 'guided') {
+      const u = controls.currentT();
+      let best = 0;
+      let bd = Infinity;
+      for (let i = 0; i < ps.length; i++) {
+        const d = Math.abs(ps[i].scrollT - u);
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      return best;
     }
-    // nearest work : entre le candidat lo-1 (z <= camZ) et lo (z > camZ), prendre le plus
-    // proche — robuste à tout epsilon d'arrêt (focus tween ou best-fit scroll à dup>=3)
-    const a = lo - 1;
-    const b = lo;
-    if (a < 0) return 0;
-    if (b >= ps.length) return ps.length - 1;
-    return Math.abs(ps[a].z - camZ) <= Math.abs(ps[b].z - camZ) ? a : b;
+    const pos = controls.currentPos();
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < ps.length; i++) {
+      const d = Math.hypot(ps[i].viewX - pos.x, ps[i].viewZ - pos.z);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    return best;
   }
 
   let navTarget: number | null = null;
@@ -194,8 +209,8 @@ async function boot(): Promise<void> {
     // Depuis le sas, la caméra est *avant* la première œuvre : « suivante » doit donc
     // l'y emmener (l'ancien code partait de `currentIndex`, déjà égal à 0, et sautait la
     // première toile).
-    const beforeFirst = ps.length > 0 && controls.currentZ() > ps[0].z + 0.3;
-    const idx = navTarget ?? focusedIdx ?? (beforeFirst ? -1 : currentIndex(controls.currentZ()));
+    const beforeFirst = ps.length > 0 && controls.currentT() < ps[0].scrollT - 0.004;
+    const idx = navTarget ?? focusedIdx ?? (beforeFirst ? -1 : currentIndex());
     if (dir === 1 && idx >= ps.length - 1) {
       navTarget = null;
       if (ui.panelIsOpen()) {
@@ -234,7 +249,7 @@ async function boot(): Promise<void> {
   function focusWork(p: PlacedWork): void {
     panelWork = p;
     focusedIdx = layout.placed.indexOf(p);
-    if (controls.mode === 'guided' && Math.abs(controls.currentZ() - p.z) > 3.2) {
+    if (controls.mode === 'guided' && Math.abs(controls.currentT() - p.scrollT) > 0.012) {
       panelTravelUntil = performance.now() + 5000; // le panneau reste ouvert pendant le trajet
     } else {
       panelTravelUntil = 0;
@@ -250,16 +265,16 @@ async function boot(): Promise<void> {
    * de la zone — jamais de traversée des 150 m du hall d'un bloc.
    */
   function goToZone(zi: number): void {
-    const zone = layout.zones[zi];
+    const zone = layout.rooms[zi];
     if (!zone) return;
     // le sas n'a pas d'œuvre : « Entrée » ramène simplement en haut de page
     if (zone.lobby) {
       if (ui.lightboxIsOpen()) ui.closeLightbox();
       if (ui.indexIsOpen()) ui.closeIndex();
-      window.scrollTo({ top: 0, behavior: controls.reduced ? 'auto' : 'smooth' });
+      controls.scrollToT(0);
       return;
     }
-    const first = layout.placed.find((p) => p.work.room === zone.id);
+    const first = layout.placed.find((p) => p.roomId === zone.id);
     if (!first) return;
     focusedIdx = layout.placed.indexOf(first);
     if (ui.lightboxIsOpen()) ui.closeLightbox();
@@ -272,13 +287,14 @@ async function boot(): Promise<void> {
     else controls.focusOn(first);
   }
 
-  function progressT(camZ: number): number {
+  function progressT(): number {
     if (controls.mode === 'guided') {
       const spacerEl = document.getElementById('scroll-spacer');
       const max = spacerEl ? spacerEl.offsetHeight - window.innerHeight : 0;
       return max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
     }
-    return Math.min(1, Math.max(0, (Z_START - camZ) / (Z_START - layout.zEnd)));
+    const pos = controls.currentPos();
+    return controls.tForPos(pos.x, pos.z);
   }
 
   const ui = initUI(
@@ -326,14 +342,14 @@ async function boot(): Promise<void> {
   );
   ui.setWorks(layout.placed);
 
-  const groups: IndexGroup[] = layout.zones
+  const groups: IndexGroup[] = layout.rooms
     .map((z) => ({
       name: z.name,
-      works: layout.placed.filter((p) => p.roomName === z.name),
+      works: layout.placed.filter((p) => p.roomId === z.id),
     }))
     .filter((g) => g.works.length > 0);
   ui.buildIndex(groups, base, (p) => focusWork(p));
-  ui.buildRooms(layout.zones.map((z) => ({ name: z.name })), (zi) => goToZone(zi));
+  ui.buildRooms(layout.rooms.map((z) => ({ name: z.name })), (zi) => goToZone(zi));
   minimap.onZonePick = (zi) => goToZone(zi);
 
   if (!fine) {
@@ -386,7 +402,7 @@ async function boot(): Promise<void> {
     const digit = /^Digit([1-9])$/.exec(e.code);
     if (digit) {
       const zi = Number(digit[1]) - 1;
-      if (zi < layout.zones.length) goToZone(zi);
+      if (zi < layout.rooms.length) goToZone(zi);
       return;
     }
     if (ui.lightboxIsOpen()) {
@@ -472,9 +488,10 @@ async function boot(): Promise<void> {
     controls.update(dt);
     // végétation : souffle de quelques millimètres (coupé si prefers-reduced-motion)
     plants.update(elapsed, controls.reduced);
-    const camZ = controls.currentZ();
+    const cam = controls.currentPos();
+    const pose = controls.currentPose();
     for (const e of entries) {
-      const dz = Math.abs(e.placed.z - camZ);
+      const dz = Math.hypot(e.placed.viewX - cam.x, e.placed.viewZ - cam.z);
       // Entre 16 et 30 m, une œuvre n'était NI chargée NI libérée : elle restait un cadre
       // vide (25 toiles sur 30 dans une salle de 30 m). On charge donc **toute la salle**
       // et on libère une salle plus loin.
@@ -506,25 +523,27 @@ async function boot(): Promise<void> {
       hintEl.classList.toggle('on', show);
       document.body.classList.toggle('cursor-view', show);
     }
-    const idx = currentIndex(camZ);
+    const idx = currentIndex();
     const cur = layout.placed[idx];
 
     // Pool de spots « tableau » : TableSpots (lights.ts) choisit les k œuvres les plus
     // proches, avec hystérésis et fondu de 350 ms — plus de téléport du pool.
     spots.hoverIndex = hoverId ? layout.placed.findIndex((q) => q.work.id === hoverId) : -1;
-    spots.update(camZ, layout.placed, dt);
+    spots.update(cam, layout.placed, dt);
 
     // fenêtre d'ombre du soleil : suit la caméra avec quantification 0,5 m (anti shadow
     // swimming, P1-2) via le helper de lights.ts
-    if (shadows) updateSunShadow(sun, camZ);
+    if (shadows) updateSunShadow(sun, cam);
 
     if (cur && idx !== captionIdx && !ui.panelIsOpen()) {
       captionIdx = idx;
       ui.setCaption(cur.work.title, metaLine(cur.work));
     }
-    const t = progressT(camZ);
+    const t = progressT();
     ui.setProgressBar(t);
-    const showEndNow = controls.mode === 'guided' ? t > 0.985 : camZ <= layout.zEnd + 1.2;
+    const end = layout.at(1);
+    const showEndNow =
+      controls.mode === 'guided' ? t > 0.985 : Math.hypot(cam.x - end.x, cam.z - end.z) < 2.6;
     if (entered) {
       if (showEndNow && ui.panelIsOpen()) {
         ui.closePanel();
@@ -537,26 +556,28 @@ async function boot(): Promise<void> {
       ui.panelIsOpen() &&
       panelWork &&
       controls.mode === 'guided' &&
-      Math.abs(camZ - panelWork.z) > 3.2 &&
+      Math.abs(controls.currentT() - panelWork.scrollT) > 0.012 &&
       performance.now() > panelTravelUntil
     ) {
       ui.closePanel();
       panelWork = null;
     }
-    if (panelWork && Math.abs(camZ - panelWork.z) <= 3.2) panelTravelUntil = 0;
-    minimap.update(camZ, cur?.work.id ?? null);
+    if (panelWork && Math.abs(controls.currentT() - panelWork.scrollT) <= 0.012) panelTravelUntil = 0;
+    minimap.update(cam, pose.yaw, cur?.work.id ?? null);
     // indicateur de salle (cartel + chip actif) — même logique de zone que minimap.update
-    const zi = zoneAt(layout, camZ);
+    const zi = zoneAt(layout, cam.x, cam.z);
     if (zi !== activeZoneIdx) {
       activeZoneIdx = zi;
-      const zone = layout.zones[zi];
+      const zone = layout.rooms[zi];
       ui.setActiveRoom(zi);
       // numérotation sur les salles d'accrochage : le sas s'appelle « Entrée », il n'est
       // pas « Salle 1 » (l'index dit 3 salles, le cartel doit dire la même chose)
       if (zone?.lobby) ui.setRoomLabel('Entrée');
       else {
-        const ri = layout.zones.slice(0, zi).filter((z) => !z.lobby).length;
-        ui.setRoomLabel(`Salle ${ri + 1}/${Math.max(1, layout.zones.filter((z) => !z.lobby).length)} · ${zone?.name ?? ''}`);
+        const ri = layout.rooms.slice(0, zi).filter((z) => !z.lobby).length;
+        ui.setRoomLabel(
+          `Salle ${ri + 1}/${Math.max(1, layout.rooms.filter((z) => !z.lobby).length)} · ${zone?.name ?? ''}`,
+        );
       }
     }
     if (post) post.render(dt);

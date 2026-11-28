@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-import { hallBounds, type Layout } from './layout';
+import { SAS_HALF, WALL_T, type Layout } from './layout';
 
 import { oakTexture } from './textures';
 
@@ -14,7 +14,7 @@ import { timberGeometry, timberX, timberY, prismY } from './wood';
  * il est donc impossible que la physique diverge du visuel.
  *
  * Tout est fusionné par matériau : bancs, socles et console = 4 draw calls pour
- * tout le hall, quoi qu'il contienne. Les pièces de bois passent par `wood.ts`
+ * tout le bâtiment, quoi qu'il contienne. Les pièces de bois passent par `wood.ts`
  * (sections chanfreinées, grain le long du fil) : une arête vive donnait des
  * meubles en carton.
  */
@@ -28,43 +28,84 @@ export interface ColliderBox {
   z: number;
 }
 
+/** Dimensions du banc (m). */
+const BENCH_L = 1.86;
+const BENCH_D = 0.44;
+
+export interface BenchSpot {
+  x: number;
+  z: number;
+  /** True si le banc court selon x (sinon selon z). */
+  alongX: boolean;
+}
+
 /**
- * Bancs : **au centre de chaque salle**, pas contre un mur.
+ * Bancs : **au centre de chaque pièce accrochée**, parallèle au mur du fond.
  *
- * Les œuvres occupent maintenant les deux murs : un banc latéral passait forcément
- * devant une toile. Au centre, il sert exactement à ce pour quoi il est fait — s'asseoir
- * et regarder dans les deux directions — et le parcours le contourne (la caméra se
- * décale de ±1,0 m, le banc fait 0,44 m de profondeur).
+ * Les œuvres occupent trois murs : un banc latéral passerait devant une toile. Au
+ * centre, il sert exactement à ce pour quoi il est fait — s'asseoir et regarder — et le
+ * parcours le contourne (le tracé passe à 1,1 m de la baie, le banc commence à 3 m).
  */
-export const BENCH_X = 0;
-/** Socles : en retrait des toiles, près des seuils (jamais dans l'axe du regard). */
-export const PEDESTAL_X = 2.75;
-
-export function benchPositions(layout: Layout): number[] {
-  return layout.zones
-    .filter((z) => !z.lobby && z.zMax - z.zMin > 5)
-    .map((z) => (z.zMin + z.zMax) / 2);
+export function benchPlacements(layout: Layout): BenchSpot[] {
+  return layout.rooms
+    .filter((r) => !r.lobby)
+    .map((room) => ({
+      x: (room.rect.x0 + room.rect.x1) / 2,
+      z: (room.rect.z0 + room.rect.z1) / 2,
+      alongX: room.inZ !== 0,
+    }));
 }
 
-/** Socles : deux par salle, du côté des seuils, décalés de l'axe. */
-export function pedestalPositions(layout: Layout): number[] {
-  return layout.zones.filter((z) => !z.lobby && z.zMax - z.zMin > 5).map((z) => z.zMin + 1.3);
+export interface PedestalSpot {
+  x: number;
+  z: number;
 }
 
-/** Console + vase contre le mur du fond (zMin), centrée. */
-export function consoleSpec(layout: Layout): { x: number; z: number } {
-  const { zMin } = hallBounds(layout);
-  return { x: 0, z: zMin + 0.34 };
+/**
+ * Socles : **contre le mur de la baie**, de part et d'autre du passage (2 par salle).
+ * C'est le seul pan de mur qui ne porte pas de toile, et un socle y tient sans jamais
+ * passer devant un cadre.
+ */
+export function pedestalPlacements(layout: Layout): PedestalSpot[] {
+  const out: PedestalSpot[] = [];
+  for (const room of layout.rooms) {
+    if (room.lobby) continue;
+    // **dans** la salle : on part de la baie et l'on avance vers l'intérieur (inX, inZ).
+    // (Le sens inverse posait les socles dans le sas, à 2 m du mur, au milieu du passage.)
+    const nx = room.inX;
+    const nz = room.inZ;
+    const tx = -nz;
+    const tz = nx;
+    for (const s of [-1, 1]) {
+      out.push({
+        x: room.doorX + nx * (WALL_T / 2 + 0.55) + tx * s * 3.5,
+        z: room.doorZ + nz * (WALL_T / 2 + 0.55) + tz * s * 3.5,
+      });
+    }
+  }
+  return out;
+}
+
+/** Console du mur du nom (sas) : plateau, pieds fuselés, livres, coupe. */
+export function consoleSpec(_layout: Layout): { x: number; z: number } {
+  return { x: 0, z: SAS_HALF - WALL_T / 2 - 0.32 };
 }
 
 /** Tous les colliders du mobilier, dans le repère monde (pour Rapier). */
 export function furnitureColliders(layout: Layout): ColliderBox[] {
   const out: ColliderBox[] = [];
-  for (const bz of benchPositions(layout)) {
-    out.push({ hx: 0.27, hy: 0.24, hz: 0.97, x: BENCH_X, y: 0.24, z: bz });
+  for (const b of benchPlacements(layout)) {
+    out.push({
+      hx: b.alongX ? BENCH_L / 2 : BENCH_D / 2,
+      hy: 0.22,
+      hz: b.alongX ? BENCH_D / 2 : BENCH_L / 2,
+      x: b.x,
+      y: 0.22,
+      z: b.z,
+    });
   }
-  for (const pz of pedestalPositions(layout)) {
-    out.push({ hx: 0.22, hy: 0.47, hz: 0.22, x: PEDESTAL_X, y: 0.47, z: pz });
+  for (const p of pedestalPlacements(layout)) {
+    out.push({ hx: 0.22, hy: 0.47, hz: 0.22, x: p.x, y: 0.47, z: p.z });
   }
   const c = consoleSpec(layout);
   out.push({ hx: 0.9, hy: 0.45, hz: 0.3, x: c.x, y: 0.45, z: c.z });
@@ -194,57 +235,56 @@ export function buildFurniture(layout: Layout, mats: FurnitureMaterials, shadows
   // Un banc de galerie doit se lire d'un coup : une ligne horizontale franche, deux
   // appuis fins, une ligne d'ombre au sol. Les joues s'arrêtent à 6 cm du sol sur un
   // patin en retrait — c'est ce détail qui évite l'effet « table de pique-nique ».
-  const benchL = 1.86;
-  const benchD = 0.44;
+  const benchL = BENCH_L;
+  const benchD = BENCH_D;
   const benchH = 0.44;
   const topT = 0.045;
-  for (const bz of benchPositions(layout)) {
+  for (const spot of benchPlacements(layout)) {
+    const rot = spot.alongX ? Math.PI / 2 : 0;
+    // Le banc est construit dans son repère local (longueur selon z) puis tourné :
+    // `push` applique la rotation avant la translation, donc l'axe suit le mur du fond.
+    const part = (src: THREE.BufferGeometry, ly: number, lz: number): void => {
+      src.translate(0, ly, lz);
+      push(src, oak, spot.x, 0, spot.z, rot);
+    };
     // plateau
-    push(
+    part(
       timberGeometry({ length: benchL, width: benchD, height: topT, chamfer: 0.007, tileV: 1.9 }),
-      oak,
-      BENCH_X,
       benchH - topT / 2,
-      bz,
+      0,
     );
     for (const sz of [-1, 1]) {
-      const zEnd = bz + sz * (benchL / 2 - 0.2);
+      const lz = sz * (benchL / 2 - 0.2);
       // joue
-      push(
+      part(
         timberY({ length: benchH - topT - 0.07, width: benchD - 0.08, height: 0.048, chamfer: 0.005, tileV: 1.2 }),
-        oak,
-        BENCH_X,
         0.07,
-        zEnd,
+        lz,
       );
       // patin en retrait
-      push(
+      part(
         timberGeometry({ length: 0.05, width: benchD - 0.12, height: 0.07, chamfer: 0.005, tileV: 1.2 }),
-        oak,
-        BENCH_X,
         0.035,
-        zEnd,
+        lz,
       );
     }
     // entretoise basse
-    push(
+    part(
       timberGeometry({ length: benchL - 0.46, width: 0.04, height: 0.055, chamfer: 0.005, tileV: 1.4 }),
-      oak,
-      BENCH_X,
       0.19,
-      bz,
+      0,
     );
   }
 
   // ---- socles laqués : fût sur socle en retrait (effet « posé ») + objet ----
-  pedestalPositions(layout).forEach((pz, i) => {
+  pedestalPlacements(layout).forEach((p, i) => {
     // socle en retrait (2 cm) → ligne d'ombre au sol
-    push(new THREE.BoxGeometry(0.35, 0.032, 0.35), lacquer, PEDESTAL_X, 0.016, pz);
+    push(new THREE.BoxGeometry(0.35, 0.032, 0.35), lacquer, p.x, 0.016, p.z);
     // fût
-    push(prismY(0.4, 0.4, 0.875, 0.005), lacquer, PEDESTAL_X, 0.032, pz);
+    push(prismY(0.4, 0.4, 0.875, 0.005), lacquer, p.x, 0.032, p.z);
     // objet exposé (vase ou coupe, alterné)
     const obj = i % 2 === 0 ? vesselGeometry(1.25) : bowlGeometry(1.1);
-    push(obj, ceramic, PEDESTAL_X, 0.907, pz, i * 1.1);
+    push(obj, ceramic, p.x, 0.907, p.z, i * 1.1);
   });
 
   // ---- console du mur du fond : plateau, pieds fuselés, livres, coupe ----

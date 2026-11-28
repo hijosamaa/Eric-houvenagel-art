@@ -147,7 +147,7 @@ export function buildPaintings(
     group.position.set(p.x, p.y, p.z);
     // +π/2 quand le tableau est au mur gauche (faceX = +1) : la normale +z locale part
     // vers +x, c'est-à-dire vers la salle.
-    group.rotation.y = p.faceX === 1 ? Math.PI / 2 : -Math.PI / 2;
+    group.rotation.y = p.rotY;
 
     // Moulures variées (dorée / discrète / muséale) : trente cadres identiques trahissent
     // le catalogue. Le choix suit l'index pour rester stable d'un rendu à l'autre.

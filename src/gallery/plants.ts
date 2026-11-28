@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-import { HALL_WIDTH, hallBounds, portalPositions, type Layout } from './layout';
+import { SAS_HALF, WALL_T, type Layout } from './layout';
 
 
 import { leafTexture } from './textures';
@@ -671,48 +671,59 @@ export function plantMaterials(aniso: number): PlantMaterials {
 /* ------------------------------ placement --------------------------------- */
 
 /**
- * Emplacements des plantes, déterministes. Les grands végétaux encadrent les portiques
- * et les extrémités du hall, les moyens rythment le mur droit, les petits vivent sur
- * les consoles / socles. Aucun doublon : chaque emplacement est unique.
+ * Emplacements des plantes, déterministes.
+ *
+ * Règle de placement : **les angles**, jamais les murs. Les toiles occupent les trois
+ * quarts du pourtour de chaque salle ; un pot collé à un mur finissait devant un cadre
+ * (c'était le cas avant). Dans les angles, il relaie la plinthe, cadre le mur du fond, et
+ * ne masque rien — même règle que dans une vraie salle d'exposition.
+ *
+ * Le nombre de plantes suit le nombre de pièces : deux grands végétaux aux angles du mur
+ * du fond (ils donnent l'échelle du volume), un moyen près de la baie.
  */
 export function plantPlacements(layout: Layout): PlantPlacement[] {
-  const { zMin, zMax } = hallBounds(layout);
   const out: PlantPlacement[] = [];
   const push = (p: Omit<PlantPlacement, 'rot' | 'scale'> & { scale?: number; rot?: number }): void => {
     const r = mulberry32(hash2(p.x, p.z));
     out.push({ rot: r() * Math.PI * 2, scale: p.scale ?? 1, ...p });
   };
 
-  /**
-   * Règle de placement : **jamais devant une toile**.
-   *
-   * Les œuvres occupent les deux murs tous les 2,8 m ; il ne reste de mur libre que les
-   * **retours de seuil** (les murs transversaux, de part et d'autre du passage). C'est
-   * donc là que vivent les plantes : à 2,9 m de l'axe et à 0,8 m du seuil, elles
-   * encadrent les portes sans jamais masquer un cadre. (Avant, elles étaient collées aux
-   * murs latéraux : un ficus se plantait devant une aquarelle.)
-   */
-  const species: PlantSpecies[] = ['olivier', 'ficus', 'monstera', 'sansevieria', 'fougere', 'eucalyptus', 'pothos'];
-  const insetX = HALL_WIDTH / 2 - 1.35;
-  portalPositions(layout).forEach((portal, i) => {
-    const z = portal.z - 0.95; // côté salle (z décroît vers le fond)
-    const a = species[(i * 2) % species.length];
-    const b = species[(i * 2 + 3) % species.length];
-    push({ x: -insetX, z, species: a, pot: i % 2 === 0 ? 'terracotta' : 'pierre', scale: 0.98 + (i % 3) * 0.06 });
-    push({ x: insetX, z: z - 0.35, species: b, pot: i % 2 === 0 ? 'pierre' : 'terracotta', scale: 0.92 + (i % 4) * 0.05 });
-  });
+  const species: PlantSpecies[] = [
+    'olivier', 'ficus', 'monstera', 'sansevieria', 'fougere', 'eucalyptus', 'pothos',
+  ];
+  const inset = 0.72;
+  let k = 0;
+  for (const room of layout.rooms) {
+    const r = room.rect;
+    const corners = [
+      { x: r.x0 + inset, z: r.z0 + inset },
+      { x: r.x1 - inset, z: r.z0 + inset },
+      { x: r.x0 + inset, z: r.z1 - inset },
+      { x: r.x1 - inset, z: r.z1 - inset },
+    ];
+    // profondeur de l'angle depuis la baie : les deux plus profonds encadrent le fond
+    const depth = (c: { x: number; z: number }): number =>
+      (c.x - room.doorX) * room.inX + (c.z - room.doorZ) * room.inZ;
+    const sorted = [...corners].sort((u, v) => depth(v) - depth(u));
+    const far = sorted.slice(0, 2);
+    const near = sorted[3];
 
-  // entrée : deux plantes qui accueillent, dans les angles du sas
-  push({ x: -insetX - 0.35, z: zMax - 0.8, species: 'olivier', pot: 'pierre', scale: 1.1 });
-  push({ x: insetX + 0.35, z: zMax - 0.8, species: 'fougere', pot: 'blanc', scale: 1.02 });
+    push({ x: far[0].x, z: far[0].z, species: species[k % 7], pot: 'pierre', scale: 1.08 });
+    push({
+      x: far[1].x,
+      z: far[1].z,
+      species: species[(k + 3) % 7],
+      pot: 'terracotta',
+      scale: 0.94 + (k % 3) * 0.05,
+    });
+    push({ x: near.x, z: near.z, species: species[(k + 5) % 7], pot: k % 2 ? 'zinc' : 'blanc', scale: 0.86 });
+    k++;
+  }
 
-  // mur du fond : un eucalyptus haut dans un bac + une sansevieria
-  push({ x: -1.9, z: zMin + 0.7, species: 'eucalyptus', pot: 'zinc', scale: 1.1 });
-  push({ x: 2.1, z: zMin + 0.62, species: 'sansevieria', pot: 'terracotta', scale: 1.0 });
-
-  // console du mur du fond : deux petites plantes sur le plateau (pas de collider)
-  out.push({ x: -0.52, z: zMin + 0.34, species: 'sansevieria', pot: 'blanc', scale: 0.42, rot: 0.7, elevated: true });
-  out.push({ x: 0.62, z: zMin + 0.32, species: 'pothos', pot: 'terracotta', scale: 0.9, rot: 2.1, elevated: true });
+  // console du mur du nom : deux petites plantes sur le plateau (pas de collider)
+  const cz = SAS_HALF - WALL_T / 2 - 0.32;
+  out.push({ x: -0.52, z: cz, species: 'sansevieria', pot: 'blanc', scale: 0.4, rot: 0.7, elevated: true });
+  out.push({ x: 0.58, z: cz - 0.02, species: 'pothos', pot: 'terracotta', scale: 0.86, rot: 2.1, elevated: true });
 
   return out;
 }

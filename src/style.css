@@ -361,141 +361,94 @@ body.cursor-view #scene:active {
 }
 
 /* ----------------------------------------------------------------------------
-   Le mini-plan : des salles accolées à l'échelle de leur longueur réelle.
-   Une graduation par œuvre (cliquable), le nom de chaque salle, la salle
-   courante teintée, un curseur de caméra.
+   Le mini-plan : le PLAN du bâtiment, à l'échelle (SVG, viewBox en mètres).
+
+   Quatre pièces, les toiles posées sur leur mur, le parcours en pointillé, la
+   caméra fléchée. Il remplace le « rail » d'une graduation par œuvre, qui ne
+   décrivait plus rien dès que le lieu a cessé d'être un couloir.
    -------------------------------------------------------------------------- */
 #minimap {
   grid-column: 2;
   position: relative;
-  height: 44px;
+  height: 96px;
   align-self: end;
   touch-action: manipulation;
 }
 
-.mm-plan {
-  position: relative;
+.mm-svg {
+  width: 100%;
   height: 100%;
-  /* filet : le plan ne doit JAMAIS recouvrir les boutons du cartel */
-  overflow: hidden;
+  display: block;
+  overflow: visible;
 }
 
-/* une salle = une boîte, largeur ∝ longueur réelle */
-.mm-room {
-  position: absolute;
-  left: var(--l, 0%);
-  width: var(--w, 0%);
-  min-width: 0;
-  height: 32px;
-  margin-top: 6px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 1px;
-  background: transparent;
-  overflow: hidden;
+/* parcours guidé : un pointillé discret, il ne doit pas concurrencer les murs */
+.mm-route {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 0.16;
+  stroke-dasharray: 0.7 0.7;
+  opacity: 0.9;
+}
+
+.mm-room rect {
+  fill: transparent;
+  stroke: var(--line);
+  stroke-width: 0.17;
   cursor: pointer;
-  transition: border-color var(--d-fast), background var(--d-fast);
+  transition: fill var(--d-fast), stroke var(--d-fast);
 }
-.mm-room.lobby {
-  border-style: dashed;
-  opacity: 0.7;
-  /* le sas ne fait que 2 m sur 88 : on lui garde un trait visible, sans déborder sur la
-     première salle (les boîtes sont en position absolue, un min-width déborderait) */
-  min-width: 0;
-  outline-offset: 1px;
+.mm-room rect.lobby {
+  stroke-dasharray: 0.6 0.45;
+  opacity: 0.85;
 }
-.mm-room:hover {
-  border-color: var(--accent);
+.mm-room rect:hover {
+  stroke: var(--accent);
 }
-.mm-room.active {
-  border-color: var(--accent);
+.mm-room rect.active {
+  fill: var(--accent);
+  fill-opacity: 0.12;
+  stroke: var(--accent);
 }
 
-/* remplissage = progression dans la salle */
-.mm-room-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--fill, 0%);
-  background: var(--accent);
-  opacity: 0.14;
-  transition: width 420ms var(--e-out);
+/* numéro de salle : la légende donne le nom complet, le plan donne la place */
+.mm-num {
+  fill: var(--muted);
+  font-family: var(--f-ui);
+  font-size: 1.9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  pointer-events: none;
+  transition: fill var(--d-fast);
+}
+.mm-room:has(rect.active) .mm-num {
+  fill: var(--accent);
 }
 
-.mm-room-name {
-  position: absolute;
-  left: 7px;
-  bottom: 4px;
-  max-width: calc(100% - 12px);
-  overflow: hidden;
-  font-size: var(--t1);
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  transition: color var(--d-fast);
-}
-.mm-room.active .mm-room-name,
-.mm-room:hover .mm-room-name {
-  color: var(--accent);
-}
-
-/* graduation d'œuvre : un simple trait sur la paroi */
+/* une toile : un trait sur le mur qui la porte */
 .mm-stop {
-  position: absolute;
-  top: 4px;
-  left: var(--p, 50%);
-  width: 12px;
-  height: 14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  transform: translateX(-50%);
-  font-size: 0;
-  line-height: 0;
+  stroke: var(--muted);
+  stroke-width: 0.26;
+  stroke-linecap: round;
+  opacity: 0.55;
   cursor: pointer;
+  transition: stroke var(--d-fast), opacity var(--d-fast), stroke-width var(--d-fast);
 }
-.mm-stop::after {
-  content: '';
-  position: absolute;
-  top: 1px;
-  left: 50%;
-  width: 1px;
-  height: 5px;
-  margin-left: -0.5px;
-  background: var(--muted);
-  opacity: 0.4;
-  transition: background var(--d-fast), opacity var(--d-fast), height var(--d-fast);
-}
-.mm-stop:hover::after,
-.mm-stop.active::after {
-  background: var(--accent);
+.mm-stop:hover,
+.mm-stop.active {
+  stroke: var(--accent);
   opacity: 1;
-  height: 8px;
+  stroke-width: 0.34;
 }
 
-/* curseur de caméra : un trait plein sous le plan */
-.mm-cam {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--p, 0%);
-  width: 1px;
-  background: var(--ink);
-  opacity: 0.75;
-  transform: translateX(-0.5px);
-  transition: left 120ms linear;
+/* curseur caméra : un point et un cône de vision */
+.mm-cam circle {
+  fill: var(--ink);
 }
-.mm-cam::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: -2px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ink);
+.mm-cam .mm-cone {
+  fill: var(--accent);
+  fill-opacity: 0.28;
 }
 
 #nav {
@@ -1231,17 +1184,11 @@ body.cursor-view #scene:active {
   .nav-link {
     display: none;
   }
-  .mm-room-name {
-    left: 4px;
-    font-size: 8px;
-    letter-spacing: 0.12em;
-  }
   #minimap {
-    height: 34px;
+    height: 74px;
   }
-  .mm-room {
-    height: 26px;
-    margin-top: 4px;
+  .mm-num {
+    font-size: 2.4px;
   }
 
   #panel {

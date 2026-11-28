@@ -2,7 +2,16 @@ import * as THREE from 'three';
 
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 
-import { HALL_HEIGHT, HALL_WIDTH, Z_START, hallBounds, portalPositions, type Layout } from './layout';
+import {
+  DOOR_W,
+  EYE_Y,
+  SAS_HALF,
+  WALL_T,
+  edgeRuns,
+  roomEdges,
+  type Layout,
+  type Rect,
+} from './layout';
 
 import { HEMI, ROOF_LAYER, SKY_FILL, SUN, TableSpots } from './lights';
 
@@ -46,10 +55,12 @@ const PLASTER_TILE = 3.4;
  * des murs (une couleur de sommet par sommet).
  */
 const FLOOR_TILE: [number, number] = [1.4, 2.4];
-/** Hauteur de la cimaise (filet d'accrochage au-dessus des toiles). */
+/**
+ * Hauteur de la cimaise (filet d'accrochage au-dessus des toiles). Elle court dans toutes
+ * les salles à la même hauteur : c'est la seule ligne continue du lieu, et c'est elle qui
+ * fait qu'on se sent dans une galerie et non dans quatre pièces.
+ */
 const CIMAISE_Y = 2.52;
-/** Épaisseur des murs de seuil (m) — un vrai mur, pas une cloison de carton. */
-const WALL_T = 0.24;
 
 /**
  * Environnement d'éclairage **de la pièce**, pas d'un studio.
@@ -378,6 +389,100 @@ function moldingGeometry(profile: [number, number][], len: number, footGradient 
   return g;
 }
 
+
+/**
+ * Parquet d'une pièce.
+ *
+ * Une lame tous les 20 cm, des abouts tous les 1,25 m, une teinte de lame (±4 %) et un
+ * joint cuit dans les **couleurs de sommet** : c'est la seule façon de garder des joints
+ * lisibles quand le sol est vu à 20° d'incidence (le GPU moyenne trois ou quatre lames
+ * en anisotrope, et le parquet redevient un aplat de couleur).
+ *
+ * Les lames suivent la profondeur de la pièce — on entre dans le fil du bois. Les UV sont
+ * en coordonnées **monde** pour que le calepinage se poursuive d'une pièce à l'autre sans
+ * raccord visible dans les baies.
+ */
+function floorGeometry(rect: Rect, axis: 'x' | 'z'): THREE.BufferGeometry {
+  const width = axis === 'z' ? rect.x1 - rect.x0 : rect.z1 - rect.z0;
+  const length = axis === 'z' ? rect.z1 - rect.z0 : rect.x1 - rect.x0;
+  const halfW = width / 2;
+  const halfL = length / 2;
+  const cx = (rect.x0 + rect.x1) / 2;
+  const cz = (rect.z0 + rect.z1) / 2;
+  const planks = Math.max(6, Math.round(width / 0.2));
+  const w = width / planks;
+  const rows = Math.max(4, Math.round(length / 1.25));
+  let seed = (Math.round(cx * 7) * 73856093) ^ (Math.round(cz * 11) * 19349663) ^ 987654321;
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  // Profil en travers d'une lame : [position (m), facteur d'occlusion]
+  const across: [number, number][] = [
+    [0, 0.7], [0.005, 0.79], [0.014, 0.92], [0.03, 0.99],
+    [w - 0.03, 0.99], [w - 0.014, 0.92], [w - 0.005, 0.79], [w, 0.7],
+  ];
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const col: number[] = [];
+  const push = (a: number, l: number, k: number): void => {
+    const x = axis === 'z' ? cx + a : cx + l;
+    const z = axis === 'z' ? cz + l : cz + a;
+    pos.push(x, 0, z);
+    uv.push(
+      (axis === 'z' ? x : z) / FLOOR_TILE[0],
+      (axis === 'z' ? z : x) / FLOOR_TILE[1],
+    );
+    col.push(k, k * 0.997, k * 0.99);
+  };
+  /** Occlusion de pied de mur : la lame s'assombrit sur les 1,6 derniers mètres. */
+  const wall = (a: number, l: number): number => {
+    const d = Math.min(halfW - Math.abs(a), halfL - Math.abs(l));
+    return 0.9 + 0.1 * Math.min(1, Math.pow(Math.min(Math.max(d, 0), 8) / 1.6, 0.75));
+  };
+  for (let p = 0; p < planks; p++) {
+    const a0 = -halfW + p * w;
+    const tone = 0.96 + rnd() * 0.08;
+    for (let k = 0; k < across.length - 1; k++) {
+      const [xa, fa] = across[k];
+      const [xb, fb] = across[k + 1];
+      const A = a0 + xa;
+      const B = a0 + xb;
+      for (let j = 0; j < rows; j++) {
+        const L0 = -halfL + (j / rows) * length;
+        const L1 = -halfL + ((j + 1) / rows) * length;
+        const ka = tone * fa * wall(A, (L0 + L1) / 2);
+        const kb = tone * fb * wall(B, (L0 + L1) / 2);
+        // ordre horaire vu du dessus → normale +Y. Le repère local est retourné quand les
+        // lames courent selon x : on inverse alors le sens des triangles.
+        if (axis === 'z') {
+          push(A, L0, ka);
+          push(A, L1, ka);
+          push(B, L1, kb);
+          push(A, L0, ka);
+          push(B, L1, kb);
+          push(B, L0, kb);
+        } else {
+          push(A, L0, ka);
+          push(B, L1, kb);
+          push(A, L1, ka);
+          push(A, L0, ka);
+          push(B, L0, kb);
+          push(B, L1, kb);
+        }
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const nrm = new Float32Array((pos.length / 3) * 3);
+  for (let i = 0; i < pos.length / 3; i++) nrm[i * 3 + 1] = 1;
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  return g;
+}
+
 export function createScene(
   canvas: HTMLCanvasElement,
   layout: Layout,
@@ -403,13 +508,14 @@ export function createScene(
   const texMax = opts.coarse ? 1024 : 2048;
 
   const scene = new THREE.Scene();
-  const { zMin, zMax } = hallBounds(layout);
-  const len = zMax - zMin;
-  const cz = (zMin + zMax) / 2;
+  const B = layout.bounds;
+  // Plus de « longueur de hall » : le bâti est un plan de 40 × 27 m. On garde une brume
+  // d'air très légère, calée sur la plus grande diagonale — elle ne sert qu'à reculer le
+  // fond d'une salle vue de l'autre, pas à noyer le lieu.
+  const span = Math.max(B.x1 - B.x0, B.z1 - B.z0);
+  const cz = 0;
   scene.background = new THREE.Color(0xd9d0bf);
-  // Brume d'air (pas de brouillard) : elle ne sert qu'à faire perdre du contraste au fond
-  // du hall, ce qui est le seul repère de profondeur à 25 m et au-delà.
-  scene.fog = new THREE.FogExp2(0xdcd6ca, 0.32 / Math.max(20, len));
+  scene.fog = new THREE.FogExp2(0xdcd6ca, 0.3 / Math.max(24, span));
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = buildEnvironmentScene();
@@ -424,15 +530,16 @@ export function createScene(
 
   // near relevé à 0,14 m : la reconstruction de profondeur du GTAO y gagne assez de
   // précision pour ne plus bruiter les murs plats (l'ancien 0,05 m bruitait l'AO).
-  const camera = new THREE.PerspectiveCamera(52, 1, 0.14, Math.max(160, len + 40));
-  camera.position.set(layout.pathX, 1.6, Z_START);
+  const camera = new THREE.PerspectiveCamera(52, 1, 0.14, Math.max(120, span + 40));
+  const p0 = layout.at(0);
+  camera.position.set(p0.x, EYE_Y, p0.z);
   camera.layers.enable(ROOF_LAYER);
 
   scene.add(new THREE.HemisphereLight(HEMI.sky, HEMI.ground, opts.coarse ? HEMI.coarseIntensity : HEMI.intensity));
 
   const sun = new THREE.DirectionalLight(SUN.color, SUN.intensity);
-  sun.position.set(SUN.position.x, SUN.position.y, cz + SUN.position.z);
-  sun.target.position.set(0, 0, cz);
+  sun.position.set(SUN.position.x, SUN.position.y, SUN.position.z);
+  sun.target.position.set(0, 0, 0);
   scene.add(sun);
   scene.add(sun.target);
   if (opts.shadows) {
@@ -492,7 +599,7 @@ export function createScene(
     // Le parquet reste **plus foncé que les murs** d'environ un tiers : c'est ce
     // rapport-là qui fait lire une pièce plutôt qu'un studio blanc. 0xbfb5a3 laisse
     // l'asset lisible (lames, nœuds) tout en le ramenant dans le camaïeu du hall.
-    color: 0xbfb5a3,
+    color: 0xb4a894,
     // Vernis très discret (0,04) : à 20° d'incidence, un clearcoat même faible prend
     // toute la place via Fresnel et le sol devient un miroir brun lisse — les lames et
     // le fil de l'asset disparaissent purement et simplement. Le parquet est donc
@@ -584,8 +691,7 @@ export function createScene(
     return m;
   };
 
-  // Sol : 60 lames de 20 cm (12 m / 60), soit exactement 7 lames par tuile de texture
-  // (1,40 m) — les joints de la géométrie tombent donc pile sur ceux de l'asset.
+  // ---- Sol : un parquet par pièce ----
   //
   // Pourquoi de la géométrie alors que l'asset porte déjà les lames : à 1,9 m de haut,
   // un parquet est vu à ~20°, soit un rapport d'anisotropie de 10 à 30:1. Même en
@@ -594,90 +700,44 @@ export function createScene(
   // Une gorge réelle, elle, ne se fait pas moyenner : on cuit donc dans les couleurs de
   // sommet l'assombrissement du joint (1,2 cm de chaque côté) et la teinte de chaque
   // lame, et on laisse l'asset fournir le fil, les nœuds et les abouts.
-  const floorGeo = (() => {
-    const planks = 60;
-    const rows = 20;
-    const halfW = HALL_WIDTH / 2;
-    const halfL = len / 2;
-    const w = HALL_WIDTH / planks;
-    let seed = 987654321;
-    const rnd = (): number => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-      return seed / 0x7fffffff;
-    };
-    // Profil en travers d'une lame : [position (m), facteur d'occlusion]
-    const across: [number, number][] = [
-      [0, 0.7], [0.005, 0.79], [0.014, 0.92], [0.03, 0.99],
-      [w - 0.03, 0.99], [w - 0.014, 0.92], [w - 0.005, 0.79], [w, 0.7],
-    ];
-    const pos: number[] = [];
-    const uv: number[] = [];
-    const col: number[] = [];
-    const push = (x: number, z: number, k: number): void => {
-      pos.push(x, 0, z);
-      uv.push((x + halfW) / FLOOR_TILE[0], (z + halfL) / FLOOR_TILE[1]);
-      col.push(k, k * 0.997, k * 0.99);
-    };
-    for (let p = 0; p < planks; p++) {
-      const px = -halfW + p * w;
-      // teinte de lame : ±4 %, comme un vrai calepinage (l'asset en porte déjà une,
-      // on ne fait qu'éviter que deux lames voisines soient identiques)
-      const tone = 0.96 + rnd() * 0.08;
-      for (let a = 0; a < across.length - 1; a++) {
-        const [xa, fa] = across[a];
-        const [xb, fb] = across[a + 1];
-        for (let j = 0; j < rows; j++) {
-          const z0 = -halfL + (j / rows) * len;
-          const z1 = -halfL + ((j + 1) / rows) * len;
-          // occlusion murale, en plus : la lame s'assombrit au pied de la plinthe
-          const wall = (z: number): number => {
-            const dz = Math.max(0, halfL - Math.abs(z));
-            return 0.9 + 0.1 * Math.min(1, Math.pow(Math.min(dz, 8) / 1.6, 0.75));
-          };
-          const ka = tone * fa * wall(z0);
-          const kb = tone * fb * wall(z1);
-          // Ordre horaire vu du dessus → normale +Y (le back-face culling supprimait
-          // le sol entier quand l'ordre était inversé).
-          push(px + xa, z0, ka);
-          push(px + xa, z1, ka);
-          push(px + xb, z1, kb);
-          push(px + xa, z0, ka);
-          push(px + xb, z1, kb);
-          push(px + xb, z0, kb);
-        }
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    const nrm = new Float32Array((pos.length / 3) * 3);
-    for (let i = 0; i < pos.length / 3; i++) nrm[i * 3 + 1] = 1;
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    return g;
-  })();
+  //
+  // Les lames **suivent la profondeur de la pièce** (l'axe du parcours) : on entre dans
+  // le fil du bois, ce qui creuse la perspective au lieu de la barrer.
   floorMat.vertexColors = true;
-  const floor = add(floorGeo, floorMat, 0, 0, cz);
-  floor.name = 'sol';
+  for (const room of layout.rooms) {
+    const axis: 'x' | 'z' = room.inZ !== 0 ? 'z' : 'x';
+    const f = add(floorGeometry(room.rect, axis), floorMat, 0, 0, 0);
+    f.name = `sol-${room.id}`;
+  }
 
-  // ---- Murs ----
-  // UV **en mètres** (tuile de PLASTER_TILE dans les deux directions : l'ancien
-  // `repeat: [len/13, 1]` étirait l'enduit 3,8:1 et fabriquait des stries verticales).
-  // Et un **dégradé vertical en couleur de sommet** : c'est la lumière du ciel qui
-  // décroît du haut vers le bas. Sans lui, un mur vertical sous une verrière est un
-  // aplat, et un aplat ne se lit pas comme un lieu.
-  const wallGeo = (w: number, h: number, d: number, dimU: number): THREE.BufferGeometry => {
+  /**
+   * Mur : boîte + UV en mètres + **dégradé vertical en couleur de sommet**.
+   *
+   * C'est la lumière du ciel qui décroît du haut vers le bas ; sans ce dégradé, un mur
+   * vertical sous une verrière est un aplat, et un aplat ne se lit pas comme un lieu.
+   * Les UV sont exprimées en mètres absolus (U le long du mur, V en altitude) pour qu'un
+   * linteau et le mur qu'il surmonte ne montrent pas deux trames de badigeon.
+   */
+  const wallGeo = (
+    w: number,
+    h: number,
+    d: number,
+    dimU: number,
+    y0 = 0,
+    yTop = h,
+  ): THREE.BufferGeometry => {
     const g = new THREE.BoxGeometry(w, h, d);
     const uv = g.attributes.uv as THREE.BufferAttribute;
     for (let i = 0; i < uv.count; i++) {
-      uv.setXY(i, (uv.getX(i) * dimU) / PLASTER_TILE, (uv.getY(i) * h) / PLASTER_TILE);
+      uv.setXY(i, (uv.getX(i) * dimU) / PLASTER_TILE, (y0 + uv.getY(i) * h) / PLASTER_TILE);
     }
     uv.needsUpdate = true;
     const pos = g.attributes.position as THREE.BufferAttribute;
     const col = new Float32Array(pos.count * 3);
+    const ref = Math.max(0.2, yTop);
     for (let i = 0; i < pos.count; i++) {
-      const t = Math.min(1, Math.max(0, (pos.getY(i) + h / 2) / h));
-      // 0,86 au sol → 1,12 sous la sablière, en courbe douce (approximation du ciel)
+      const t = Math.min(1, Math.max(0, (pos.getY(i) + h / 2 + y0) / ref));
+      // 0,80 au sol → 1,04 sous la sablière, en courbe douce (approximation du ciel)
       const v = 0.8 + 0.24 * Math.pow(t, 0.75);
       col[i * 3] = v;
       col[i * 3 + 1] = v;
@@ -686,57 +746,74 @@ export function createScene(
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     return g;
   };
-  // Murs latéraux **par salle** : chaque salle a sa hauteur, donc les murs s'arrêtent à
-  // sa dalle et l'on voit les seuils. (Un mur continu de 4,15 m aurait laissé un vide
-  // au-dessus des salles basses.)
-  for (const zone of layout.zones) {
-    const z0 = Math.min(zone.zMin, zone.zMax);
-    const z1 = Math.max(zone.zMin, zone.zMax);
-    const zl = z1 - z0;
-    if (zl < 0.05) continue;
-    const zc = (z0 + z1) / 2;
-    const h = zone.shell.height;
-    add(wallGeo(0.25, h, zl, zl), plaster, -HALL_WIDTH / 2, h / 2, zc);
-    add(wallGeo(0.25, h, zl, zl), plaster, HALL_WIDTH / 2, h / 2, zc);
+
+  // ---- Murs ----
+  // UV **en mètres** (tuile de PLASTER_TILE dans les deux directions : l'ancien
+  // `repeat: [len/13, 1]` étirait l'enduit 3,8:1 et fabriquait des stries verticales).
+  // Et un **dégradé vertical en couleur de sommet** : c'est la lumière du ciel qui
+  // décroît du haut vers le bas. Sans lui, un mur vertical sous une verrière est un
+  // aplat, et un aplat ne se lit pas comme un lieu.
+  //
+  // Les murs viennent de `layout.walls` — les **mêmes** tronçons que ceux de la
+  // physique : murs mitoyens fusionnés, baies percées, linteaux posés. Le visuel ne peut
+  // donc pas diverger des collisions.
+  for (const w of layout.walls) {
+    const L = w.to - w.from;
+    const h = w.y1 - w.y0;
+    if (L < 0.02 || h < 0.02) continue;
+    const g =
+      w.dir === 'x'
+        ? wallGeo(L, h, WALL_T, L, w.y0, w.y1)
+        : wallGeo(WALL_T, h, L, L, w.y0, w.y1);
+    const px = w.dir === 'x' ? (w.from + w.to) / 2 : w.at;
+    const pz = w.dir === 'x' ? w.at : (w.from + w.to) / 2;
+    const mesh = add(g, plaster, px, w.y0 + h / 2, pz, { cast: true });
+    mesh.name = w.outer ? 'mur-facade' : 'mur';
   }
-  // murs d'about : entrée et fond
-  add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, HALL_WIDTH + 0.5), plaster, 0, HALL_HEIGHT / 2, zMax);
-  add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, HALL_WIDTH + 0.5), plaster, 0, HALL_HEIGHT / 2, zMin);
 
   // ---- Plafonds + verrières, salle par salle (ceiling.ts) ----
   const ceiling = buildCeilings(layout, { painted, plaster: ceilMat, bronze }, opts.shadows);
   scene.add(ceiling.group);
 
-  // ---- Plinthes + cimaise, découpées **par salle** (elles s'arrêtent aux seuils) ----
-  const inner = HALL_WIDTH / 2 - 0.125;
+  // ---- Plinthes + cimaise, par pièce et par côté, interrompues aux baies ----
+  //
+  // Elles ne sont plus deux lignes filantes le long d'un hall : chaque pièce a son tour
+  // complet, et le passage d'une baie les coupe net. C'est ce qui donne à chaque salle
+  // ses limites, sans moulure qui traverse une ouverture.
   const skirtProfile: [number, number][] = [
     [0, 0], [0.045, 0], [0.045, 0.018], [0.022, 0.042], [0.036, 0.115], [0, 0.115],
   ];
-  for (const zone of layout.zones) {
-    const z0 = Math.min(zone.zMin, zone.zMax);
-    const z1 = Math.max(zone.zMin, zone.zMax);
-    const zl = z1 - z0;
-    if (zl < 0.3) continue;
-    const zc = (z0 + z1) / 2;
-    const skirtGeo = moldingGeometry(skirtProfile, zl, true);
-    const skirtR = new THREE.Mesh(skirtGeo, trimBase);
-    skirtR.rotation.y = Math.PI;
-    skirtR.position.set(inner, 0, z1);
-    skirtR.receiveShadow = opts.shadows;
-    skirtR.name = 'plinthe';
-    scene.add(skirtR);
-    const skirtL = new THREE.Mesh(skirtGeo, trimBase);
-    skirtL.position.set(-inner, 0, z0);
-    skirtL.receiveShadow = opts.shadows;
-    scene.add(skirtL);
+  for (const room of layout.rooms) {
+    for (const e of roomEdges(room.rect)) {
+      const rot = Math.atan2(-e.nz, e.nx);
+      const tx = Math.sin(rot);
+      const tz = Math.cos(rot);
+      const alongX = e.dir === 'x';
+      const dirSign = tx * (alongX ? 1 : 0) + tz * (alongX ? 0 : 1);
+      for (const [a, b] of edgeRuns(e, layout.openings)) {
+        const L = Math.abs(b - a);
+        if (L < 0.25) continue;
+        const startAt = dirSign > 0 ? Math.min(a, b) : Math.max(a, b);
+        const px = alongX ? startAt : e.at + e.nx * (WALL_T / 2);
+        const pz = alongX ? e.at + e.nz * (WALL_T / 2) : startAt;
 
-    // cimaise : le filet d'accrochage reste à 2,52 m dans toutes les salles (une ligne
-    // continue guide l'œil d'une salle à l'autre), mais s'arrête à chaque seuil.
-    if (zone.shell.height > CIMAISE_Y + 0.35) {
-      for (const sx of [-1, 1]) {
-        const g = extrudedPrism(chamferedSection(0.03, 0.05, 0.006), zl, { tileV: 3 });
-        const m = add(g, trim, sx * inner, CIMAISE_Y, zc);
-        m.name = 'cimaise';
+        const skirt = new THREE.Mesh(moldingGeometry(skirtProfile, L, true), trimBase);
+        skirt.rotation.y = rot;
+        skirt.position.set(px, 0, pz);
+        skirt.receiveShadow = opts.shadows;
+        skirt.name = 'plinthe';
+        scene.add(skirt);
+
+        if (room.height > CIMAISE_Y + 0.3) {
+          const cim = new THREE.Mesh(
+            extrudedPrism(chamferedSection(0.03, 0.05, 0.006), L, { tileV: 3 }),
+            trim,
+          );
+          cim.rotation.y = rot;
+          cim.position.set(px, CIMAISE_Y, pz);
+          cim.name = 'cimaise';
+          scene.add(cim);
+        }
       }
     }
   }
@@ -759,7 +836,10 @@ export function createScene(
     scene.add(buildContactShadows(boxes, opts.shadows));
   }
 
-  // ---- Texte de salle sur le mur du fond ----
+  // ---- Le mur du nom ----
+  //
+  // Face à l'entrée, dans le sas : c'est la première chose qu'on voit en arrivant et la
+  // dernière en repartant. Le parcours se termine pile devant lui.
   if (opts.artist) {
     const sign = new THREE.Mesh(
       new THREE.PlaneGeometry(3.9, 1.95),
@@ -771,21 +851,19 @@ export function createScene(
         depthWrite: false,
       }),
     );
-    sign.position.set(0, 2.05, zMin + 0.135);
+    sign.position.set(0, 2.05, SAS_HALF - WALL_T / 2 - 0.004);
+    sign.rotation.y = Math.PI;
     sign.name = 'texte-salle';
     scene.add(sign);
-  }
 
-  // ---- Cartouche d'entrée, sur le mur des toiles, avant la première œuvre ----
-  {
-    const zEntry = Z_START - 1.15;
+    // Cartouche : l'artiste, puis les trois salles — le plan se lit aussi sur le mur.
     const panel = new THREE.Mesh(
       new THREE.PlaneGeometry(1.4, 0.7),
       new THREE.MeshStandardMaterial({
         map: entryTextTexture(
-          opts.artist ?? '',
+          opts.artist,
           opts.tagline ?? 'Huile & aquarelle',
-          layout.zones.map((zn) => zn.name),
+          layout.rooms.filter((r) => !r.lobby).map((r) => r.name),
         ),
         transparent: true,
         roughness: 0.95,
@@ -793,71 +871,44 @@ export function createScene(
         depthWrite: false,
       }),
     );
-    panel.position.set(-HALL_WIDTH / 2 + 0.136, 1.62, zEntry);
-    panel.rotation.y = Math.PI / 2;
+    panel.position.set(-2.85, 1.62, SAS_HALF - WALL_T / 2 - 0.004);
+    panel.rotation.y = Math.PI;
     panel.name = 'cartouche-entree';
     scene.add(panel);
   }
 
-  // ---- Murs de seuil : le passage d'une salle à l'autre est percé dans un vrai mur,
-  // pas encadré par deux piluliers. C'est ce qui supprime le « portique » qui faisait
-  // chargé, et cela donne des seuils francs entre des plafonds de hauteurs différentes.
-  const portals = portalPositions(layout);
-  for (const portal of portals) {
-    const z = portal.z;
-    const wallH = portal.height;
-    const half = portal.openingHalf;
-    const jambW = HALL_WIDTH / 2 - half;
-    for (const sx of [-1, 1]) {
-      // `wallGeo` (et pas BoxGeometry) : le matériau d'enduit est en `vertexColors`, et
-      // une boîte nue sans attribut `color` sortait NOIRE.
-      const jamb = add(
-        wallGeo(jambW, portal.openingH, WALL_T, jambW),
-        plaster,
-        sx * (half + jambW / 2),
-        portal.openingH / 2,
-        z,
-        { cast: true },
-      );
-      jamb.name = 'seuil-jamb';
-      jamb.rotation.y = 0;
-      // nez de cloison peint : la tranche du mur, peinte, qui accroche la lumière
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.03, portal.openingH, 0.05), trim);
-      nose.position.set(sx * (half + 0.015), portal.openingH / 2, z + WALL_T / 2 + 0.02);
-      scene.add(nose);
-    }
-    // linteau : du haut du passage jusqu'à la salle la plus haute
-    const lintelH = wallH - portal.openingH;
-    const lintel = add(
-      wallGeo(half * 2, lintelH, WALL_T, half * 2),
-      plaster,
-      0,
-      portal.openingH + lintelH / 2,
-      z,
-      { cast: true },
+  // ---- Plaque de salle, peinte à côté de chaque baie, côté sas ----
+  //
+  // Plus d'écriteau sur les poutres (c'est ce qui « faisait moche ») : le nom est sur le
+  // mur, à hauteur de regard, là où l'on arrive. Cliquable : il mène à la salle.
+  layout.rooms.forEach((room, zi) => {
+    if (room.lobby) return;
+    const nx = -room.inX;
+    const nz = -room.inZ;
+    // tangente de la baie, choisie pour poser la plaque du même côté dans toutes les salles
+    const tx = -nz;
+    const tz = nx;
+    const off = DOOR_W / 2 + 1.0;
+    const plaque = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.62, 0.304),
+      new THREE.MeshStandardMaterial({
+        map: plaqueTexture(room.name),
+        transparent: true,
+        roughness: 0.9,
+        envMapIntensity: 0.1,
+        depthWrite: false,
+      }),
     );
-    lintel.name = 'seuil-linteau';
-
-    // Plaque de salle : sur le mur, à hauteur de regard, à droite du passage — plus
-    // jamais sur une poutre (c'est ce qui « faisait moche »).
-    const zone = layout.zones[portal.zoneIndex];
-    if (zone) {
-      const plaque = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.9, 0.169),
-        new THREE.MeshStandardMaterial({
-          map: plaqueTexture(zone.name),
-          transparent: true,
-          roughness: 0.9,
-          envMapIntensity: 0.1,
-          depthWrite: false,
-        }),
-      );
-      plaque.position.set(half + 0.55, 1.46, z + WALL_T / 2 + 0.004);
-      plaque.userData.zoneIndex = portal.zoneIndex;
-      plaque.name = 'plaque';
-      scene.add(plaque);
-    }
-  }
+    plaque.position.set(
+      room.doorX + nx * (WALL_T / 2 + 0.006) + tx * off,
+      1.52,
+      room.doorZ + nz * (WALL_T / 2 + 0.006) + tz * off,
+    );
+    plaque.rotation.y = Math.atan2(nx, nz);
+    plaque.userData.zoneIndex = zi;
+    plaque.name = 'plaque';
+    scene.add(plaque);
+  });
 
   return { renderer, scene, camera, sun, spotPool, spots, plants };
 }

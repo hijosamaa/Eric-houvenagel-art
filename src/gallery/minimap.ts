@@ -1,150 +1,139 @@
 import { zoneAt, type Layout, type PlacedWork } from './layout';
 
 /**
- * Mini-plan de la galerie.
+ * Mini-plan de la galerie — **un vrai plan**, à l'échelle.
  *
- * Remplace le « rail » de 1 px (une graduation par œuvre sur une ligne) par un **plan** :
- * les salles sont des boîtes accolées, à l'échelle de leur longueur réelle, séparées par
- * les murs de seuil, nommées, et la salle courante est teintée. Les œuvres restent des
- * graduations (cliquables) et un curseur montre la caméra.
+ * L'ancienne version était un rail d'une graduation par œuvre sur une ligne : lisible
+ * quand le lieu était un couloir de 90 m, absurde dès qu'il devient un bâtiment. Ici les
+ * quatre pièces sont des rectangles à l'échelle (40 × 27 m), les toiles sont des traits
+ * posés **sur leur mur**, le parcours guidé est tracé en pointillé et la caméra a une
+ * flèche qui montre où elle regarde. On comprend le lieu d'un coup d'œil, et chaque
+ * pièce se clique pour s'y rendre.
  *
- * Un plan se lit d'un coup d'œil là où un rail demande d'avoir compris le code de la
- * graduation — et avec 30 œuvres réparties en quatre volumes, c'est le plan qui donne
- * l'échelle du lieu.
+ * Le rendu est un SVG dans un `viewBox` en mètres : aucune conversion px ne dépend d'une
+ * mesure du DOM, donc rien ne se désaligne au redimensionnement.
  */
+
+const PAD = 0.6; // marge autour du bâti (m)
+
 export class Minimap {
   onPick: ((p: PlacedWork) => void) | null = null;
-  /** Clic sur une salle → saut à son début. */
+  /** Clic sur une salle → saut à sa première œuvre. */
   onZonePick: ((zoneIndex: number) => void) | null = null;
 
   private readonly layout: Layout;
-  private readonly root: HTMLElement;
-  private readonly plan: HTMLElement;
-  private readonly camMark: HTMLElement;
-  private readonly fills: HTMLElement[] = [];
-  private readonly roomBoxes: HTMLElement[] = [];
-  private readonly stops = new Map<string, HTMLButtonElement>();
-  private readonly span: number;
-  private readonly zMax: number;
+  private readonly svg: SVGSVGElement;
+  private readonly camMark: SVGGElement;
+  private readonly roomRects: SVGRectElement[] = [];
+  private readonly stops = new Map<string, SVGElement>();
 
   constructor(root: HTMLElement, layout: Layout) {
     this.layout = layout;
-    this.root = root;
     root.classList.add('plan');
     root.textContent = '';
 
-    const { zMin, zMax } = { zMin: layout.zBack, zMax: layout.zFront };
-    this.zMax = zMax;
-    this.span = Math.max(0.001, zMax - zMin);
+    const B = layout.bounds;
+    const w = B.x1 - B.x0 + PAD * 2;
+    const h = B.z1 - B.z0 + PAD * 2;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `${B.x0 - PAD} ${B.z0 - PAD} ${w} ${h}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('class', 'mm-svg');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Plan de la galerie');
+    this.svg = svg;
 
-    this.plan = document.createElement('div');
-    this.plan.className = 'mm-plan';
+    // ---- parcours guidé (pointillé fin, sous les salles) ----
+    const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    route.setAttribute('points', layout.path.map((n) => `${n.x},${n.z}`).join(' '));
+    route.setAttribute('class', 'mm-route');
+    svg.appendChild(route);
 
-    // --- salles (boîtes) ---
-    // Les largeurs sont **normalisées sur la somme réelle** des zones, pas sur la portée
-    // totale : les zones se touchent (elles se partagent la frontière du seuil), donc
-    // `(z1−z0)/span` les faisait plus larges que le plan et la dernière sortait de la
-    // colonne — elle recouvrait alors les boutons précédent/suivant.
-    const lengths = layout.zones.map((z) => Math.max(0.001, z.zMax - z.zMin));
-    const total = lengths.reduce((a, b) => a + b, 0);
-    let cursor = 0;
-    layout.zones.forEach((zone, zi) => {
-      const z0 = Math.max(zone.zMin, zMin);
-      const z1 = Math.min(zone.zMax, zMax);
-      if (z1 - z0 <= 0.05) return;
-      const box = document.createElement('button');
-      box.type = 'button';
-      box.className = 'mm-room';
-      if (zone.lobby) box.classList.add('lobby');
-      const w = (lengths[zi] / total) * 100;
-      box.style.setProperty('--l', `${cursor}%`);
-      box.style.setProperty('--w', `${w}%`);
-      cursor += w;
-      box.title = zone.lobby ? 'Entrée' : `Aller à « ${zone.name} »`;
-      box.setAttribute('aria-label', zone.lobby ? 'Entrée' : `Aller à la salle ${zone.name}`);
-      const fill = document.createElement('span');
-      fill.className = 'mm-room-fill';
-      box.appendChild(fill);
-      this.fills.push(fill);
-      // le sas n'affiche pas de nom : sa boîte fait 2 m sur 88, le libellé serait tronqué
-      if (!zone.lobby) {
-        const name = document.createElement('span');
-        name.className = 'mm-room-name';
-        name.textContent = zone.name;
-        box.appendChild(name);
-      }
-      box.addEventListener('click', (e) => {
+    // ---- salles ----
+    layout.rooms.forEach((room, zi) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', 'mm-room');
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String(room.rect.x0));
+      rect.setAttribute('y', String(room.rect.z0));
+      rect.setAttribute('width', String(room.rect.x1 - room.rect.x0));
+      rect.setAttribute('height', String(room.rect.z1 - room.rect.z0));
+      if (room.lobby) rect.classList.add('lobby');
+      rect.addEventListener('click', (e) => {
         e.stopPropagation();
         this.onZonePick?.(zi);
       });
-      this.plan.appendChild(box);
-      this.roomBoxes.push(box);
+      g.appendChild(rect);
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = room.lobby ? 'Entrée' : `Aller à « ${room.name} »`;
+      g.appendChild(title);
 
-      // graduations des œuvres de cette salle
+      // numéro de salle : le nom complet vit dans la légende, ici on ne met que l'ordre
+      if (!room.lobby) {
+        const n = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const idx = layout.rooms.slice(0, zi).filter((r) => !r.lobby).length;
+        n.textContent = String(idx + 1);
+        n.setAttribute('x', String((room.rect.x0 + room.rect.x1) / 2));
+        n.setAttribute('y', String((room.rect.z0 + room.rect.z1) / 2 + 1.1));
+        n.setAttribute('class', 'mm-num');
+        g.appendChild(n);
+      }
+      svg.appendChild(g);
+      this.roomRects.push(rect);
+
+      // ---- toiles : un trait sur le mur où elles sont accrochées ----
       for (const p of layout.placed) {
-        if (p.z > z1 || p.z < z0) continue;
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'mm-stop';
-        b.title = `${p.work.title} — ${p.roomName}`;
-        b.setAttribute('aria-label', `Œuvre : ${p.work.title}`);
-        b.style.setProperty('--p', `${((zMax - p.z) / this.span) * 100}%`);
-        b.addEventListener('click', (e) => {
+        if (p.roomId !== room.id) continue;
+        const t = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        // la toile est plaquée contre son mur : le trait suit sa largeur
+        const tx = -p.nz;
+        const tz = p.nx;
+        t.setAttribute('x1', String(p.x - (tx * p.w) / 2));
+        t.setAttribute('y1', String(p.z - (tz * p.w) / 2));
+        t.setAttribute('x2', String(p.x + (tx * p.w) / 2));
+        t.setAttribute('y2', String(p.z + (tz * p.w) / 2));
+        t.setAttribute('class', 'mm-stop');
+        t.addEventListener('click', (e) => {
           e.stopPropagation();
           this.onPick?.(p);
         });
-        this.plan.appendChild(b);
-        this.stops.set(p.work.id, b);
+        const ti = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        ti.textContent = `${p.work.title} — ${p.roomName}`;
+        t.appendChild(ti);
+        svg.appendChild(t);
+        this.stops.set(p.work.id, t);
       }
     });
 
-    // --- curseur caméra ---
-    this.camMark = document.createElement('div');
-    this.camMark.className = 'mm-cam';
-    this.plan.appendChild(this.camMark);
+    // ---- curseur caméra : un point + un cap ----
+    const cam = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    cam.setAttribute('class', 'mm-cam');
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('r', '0.55');
+    cam.appendChild(dot);
+    const cone = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    cone.setAttribute('d', 'M 0 -0.7 L 2.2 -3.1 A 3.6 3.6 0 0 0 -2.2 -3.1 Z');
+    cone.setAttribute('class', 'mm-cone');
+    cam.appendChild(cone);
+    svg.appendChild(cam);
+    this.camMark = cam;
 
-    this.root.appendChild(this.plan);
-
-    // clic sur le fond du plan → œuvre la plus proche
-    this.plan.addEventListener('click', (e) => {
-      const rect = this.plan.getBoundingClientRect();
-      const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
-      const targetZ = zMax - f * this.span;
-      let best: PlacedWork | null = null;
-      let bd = Infinity;
-      for (const p of this.layout.placed) {
-        const d = Math.abs(p.z - targetZ);
-        if (d < bd) {
-          bd = d;
-          best = p;
-        }
-      }
-      if (best) this.onPick?.(best);
-    });
+    root.appendChild(svg);
   }
 
-  /** Plus rien à mesurer : le plan est en pourcentages. Conservé pour l'API de main.ts. */
+  /** Plus rien à mesurer : le plan est en unités du monde. Conservé pour l'API de main.ts. */
   relayout(): void {
     /* no-op */
   }
 
-  update(camZ: number, currentId: string | null): void {
-    const t = Math.min(1, Math.max(0, (this.zMax - camZ) / this.span));
-    this.camMark.style.setProperty('--p', `${t * 100}%`);
+  update(pos: { x: number; z: number }, yaw: number, currentId: string | null): void {
+    this.camMark.setAttribute(
+      'transform',
+      `translate(${pos.x.toFixed(2)} ${pos.z.toFixed(2)}) rotate(${((-yaw * 180) / Math.PI).toFixed(1)})`,
+    );
     for (const [id, el] of this.stops) el.classList.toggle('active', id === currentId);
-
-    // remplissage progressif de la salle courante
-    const zi = zoneAt(this.layout, camZ);
-    this.roomBoxes.forEach((box, i) => {
-      const zone = this.layout.zones[i];
-      box.classList.toggle('active', i === zi);
-      const fill = this.fills[i];
-      if (!fill) return;
-      const z0 = Math.min(zone.zMin, zone.zMax);
-      const z1 = Math.max(zone.zMin, zone.zMax);
-      const len = Math.max(0.001, z1 - z0);
-      const p = i === zi ? Math.min(1, Math.max(0, (z1 - camZ) / len)) : i < zi ? 1 : 0;
-      fill.style.setProperty('--fill', `${p * 100}%`);
-    });
+    const zi = zoneAt(this.layout, pos.x, pos.z);
+    this.roomRects.forEach((r, i) => r.classList.toggle('active', i === zi));
+    this.svg.dataset.room = String(zi);
   }
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-import { HALL_WIDTH, type Layout } from './layout';
+import type { Layout, Room } from './layout';
 
 import { timberX, timberGeometry } from './wood';
 
@@ -11,14 +11,15 @@ import { skyTexture } from './textures';
 /**
  * Plafonds et verrières, **salle par salle**.
  *
- * Ce qui a changé (et pourquoi) : la version précédente traitait le lieu comme une nef
+ * Ce qui a changé (et pourquoi) : la version « enfilade » traitait le lieu comme une nef
  * unique de 90 m — une verrière continue, une poutre maîtresse, une solive tous les
- * 1,92 m, une sablière, des portiques, plus une plaque de laiton sur chaque linteau.
- * Vu d'en bas, cela faisait un plafond « chargé » qui concurrençait les toiles.
+ * 1,92 m, une sablière, des portiques, plus une plaque de laiton sur chaque linteau. Vu
+ * d'en bas, cela faisait un plafond « chargé » qui concurrençait les toiles.
  *
  * Ici chaque salle a **son** plafond : une dalle à trémie, deux poutres qui encadrent la
- * verrière, deux ou trois poutres transversales, et rien d'autre. Les salles n'ont pas la
- * même hauteur, ce qui donne des seuils francs plutôt qu'un long couloir.
+ * verrière, deux ou trois poutres transversales, et rien d'autre. La verrière court dans
+ * le sens de la profondeur — donc dans l'axe du parcours — et les salles n'ont ni la même
+ * hauteur ni la même largeur de ciel : c'est ce qui les distingue d'un couloir.
  *
  * Toutes les pièces peintes d'une salle sont fusionnées en un seul maillage : 1 draw call
  * par salle pour la charpente, quel que soit le nombre de poutres.
@@ -45,23 +46,23 @@ export interface CeilingBuild {
 
 /** Dalle rectangulaire percée de la trémie (une Shape extrudée = arêtes réelles). */
 function slabWithWell(
-  halfW: number,
-  halfL: number,
-  wellW: number,
-  wellL: number,
+  halfX: number,
+  halfZ: number,
+  wellX: number,
+  wellZ: number,
   thickness: number,
 ): THREE.BufferGeometry {
   const shape = new THREE.Shape();
-  shape.moveTo(-halfW, -halfL);
-  shape.lineTo(halfW, -halfL);
-  shape.lineTo(halfW, halfL);
-  shape.lineTo(-halfW, halfL);
+  shape.moveTo(-halfX, -halfZ);
+  shape.lineTo(halfX, -halfZ);
+  shape.lineTo(halfX, halfZ);
+  shape.lineTo(-halfX, halfZ);
   shape.closePath();
   const hole = new THREE.Path();
-  hole.moveTo(-wellW, -wellL);
-  hole.lineTo(-wellW, wellL);
-  hole.lineTo(wellW, wellL);
-  hole.lineTo(wellW, -wellL);
+  hole.moveTo(-wellX, -wellZ);
+  hole.lineTo(-wellX, wellZ);
+  hole.lineTo(wellX, wellZ);
+  hole.lineTo(wellX, -wellZ);
   hole.closePath();
   shape.holes.push(hole);
   const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 1 });
@@ -74,53 +75,86 @@ function slabWithWell(
   return geo;
 }
 
+/** Axe long de la pièce : la profondeur, de la baie au mur du fond. */
+function longAxisOf(room: Room): 'x' | 'z' {
+  return room.inZ !== 0 ? 'z' : 'x';
+}
+
 export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: boolean): CeilingBuild {
   const group = new THREE.Group();
   group.name = 'plafonds';
-  const halfW = HALL_WIDTH / 2;
   const panes: THREE.Material[] = [];
 
-  for (const zone of layout.zones) {
-    const shell = zone.shell;
-    const z0 = Math.min(zone.zMin, zone.zMax);
-    const z1 = Math.max(zone.zMin, zone.zMax);
-    const len = z1 - z0;
-    if (len <= 0.05) continue;
-    const cz = (z0 + z1) / 2;
-    const H = shell.height;
-    const halfL = len / 2;
+  for (const room of layout.rooms) {
+    const shell = room.shell;
+    const H = room.height;
+    const cx = (room.rect.x0 + room.rect.x1) / 2;
+    const cz = (room.rect.z0 + room.rect.z1) / 2;
+    const halfX = (room.rect.x1 - room.rect.x0) / 2;
+    const halfZ = (room.rect.z1 - room.rect.z0) / 2;
+    const axis = longAxisOf(room);
+    // dimensions de la pièce dans le repère local (a = profondeur, b = largeur)
+    const halfA = axis === 'z' ? halfZ : halfX;
+    const halfB = axis === 'z' ? halfX : halfZ;
+    /** Repère local → monde. */
+    const mx = (a: number, b: number): number => cx + (axis === 'z' ? b : a);
+    const mz = (a: number, b: number): number => cz + (axis === 'z' ? a : b);
 
-    const wellW = Math.min(halfW - 1.1, shell.skyWidth / 2);
-    const wellL = Math.max(0.8, (len * shell.skyRatio) / 2);
+    const wellA = Math.min(halfA - 1.2, shell.skyL / 2);
+    const wellB = Math.min(halfB - 1.35, shell.skyW / 2);
+    if (wellA <= 0.2 || wellB <= 0.2) continue;
+
+    // trémie exprimée dans le repère monde de la dalle
+    const wellX = axis === 'z' ? wellB : wellA;
+    const wellZ = axis === 'z' ? wellA : wellB;
 
     const painted: THREE.BufferGeometry[] = [];
     const bronze: THREE.BufferGeometry[] = [];
 
     // ---- dalle à trémie ----
-    const slab = new THREE.Mesh(slabWithWell(halfW, halfL, wellW, wellL, SLAB_THICKNESS), mats.plaster);
-    slab.position.set(0, H, cz);
+    const slab = new THREE.Mesh(slabWithWell(halfX, halfZ, wellX, wellZ, SLAB_THICKNESS), mats.plaster);
+    slab.position.set(cx, H, cz);
     slab.castShadow = shadows;
     slab.receiveShadow = shadows;
-    slab.name = `dalle-${zone.id}`;
+    slab.name = `dalle-${room.id}`;
     group.add(slab);
 
-    // ---- redent : plateau mince, trémie légèrement plus large, sous la dalle ----
-    const mouth = new THREE.Mesh(
-      slabWithWell(halfW, halfL, wellW + MOUTH_STEP, wellL + MOUTH_STEP, 0.045),
-      mats.painted,
-    );
-    mouth.position.set(0, H - 0.045, cz);
-    mouth.receiveShadow = shadows;
-    mouth.castShadow = shadows;
-    group.add(mouth);
+    // ---- redent : un **bandeau** peint de 11 cm qui borde la trémie ----
+    //
+    // La version précédente posait une plaque peinte sur toute la dalle : vue d'en bas,
+    // la salle avait un plafond de bois. Ici le bandeau ne fait que border le ciel — la
+    // dalle reste de l'enduit, et c'est la seule pièce peinte du plafond avec les poutres.
+    {
+      const mouthT = 0.05;
+      const mouthW = 0.11;
+      const by = H - mouthT / 2;
+      const bx = wellX + MOUTH_STEP;
+      const bz = wellZ + MOUTH_STEP;
+      const bar = (w: number, d: number, x: number, z: number): void => {
+        // toNonIndexed : les poutres de wood.ts ne sont pas indexées, et
+        // mergeGeometries refuse de mélanger les deux familles d'attributs.
+        const box = new THREE.BoxGeometry(w, mouthT, d);
+        const g = box.toNonIndexed();
+        box.dispose();
+        g.translate(x, by, z);
+        painted.push(g);
+      };
+      bar(bx * 2 + mouthW * 2, mouthW, cx, cz - bz - mouthW / 2);
+      bar(bx * 2 + mouthW * 2, mouthW, cx, cz + bz + mouthW / 2);
+      bar(mouthW, bz * 2, cx - bx - mouthW / 2, cz);
+      bar(mouthW, bz * 2, cx + bx + mouthW / 2, cz);
+    }
 
-    // ---- deux poutres qui encadrent la verrière (le long du hall) ----
+    // ---- deux poutres qui encadrent la verrière, dans l'axe de la pièce ----
     const beamW = 0.18;
     const beamH = 0.26;
-    const beamX = wellW + beamW / 2 + 0.06;
-    for (const sx of [-1, 1]) {
-      const g = timberGeometry({ length: len, width: beamW, height: beamH, chamfer: 0.018, tileV: 3 });
-      g.translate(sx * beamX, H - beamH / 2, cz);
+    const beamOffset = wellB + beamW / 2 + 0.06;
+    for (const s of [-1, 1]) {
+      const g =
+        axis === 'z'
+          ? timberGeometry({ length: halfA * 2, width: beamW, height: beamH, chamfer: 0.018, tileV: 3 })
+          : timberX({ length: halfA * 2, width: beamW, height: beamH, chamfer: 0.018, tileV: 3 });
+      g.translate(mx(0, s * beamOffset), H - beamH / 2, mz(0, s * beamOffset));
       painted.push(g);
     }
 
@@ -129,9 +163,12 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     const transH = 0.3;
     const n = shell.beams;
     for (let k = 1; k <= n; k++) {
-      const z = z0 + (len * k) / (n + 1);
-      const g = timberX({ length: HALL_WIDTH - 0.06, width: transW, height: transH, chamfer: 0.016, tileV: 2.6 });
-      g.translate(0, H - transH / 2, z);
+      const a = -halfA + (halfA * 2 * k) / (n + 1);
+      const g =
+        axis === 'z'
+          ? timberX({ length: halfB * 2 - 0.06, width: transW, height: transH, chamfer: 0.016, tileV: 2.6 })
+          : timberGeometry({ length: halfB * 2 - 0.06, width: transW, height: transH, chamfer: 0.016, tileV: 2.6 });
+      g.translate(mx(a, 0), H - transH / 2, mz(a, 0));
       painted.push(g);
     }
 
@@ -139,7 +176,6 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     const paneY = H + SLAB_THICKNESS - 0.03;
     const paneMat = new THREE.MeshBasicMaterial({
       map: skyTexture(),
-      // 1,16–1,26 : le vitrage « brûle » un peu comme sur une photo, sans perdre le ciel.
       // 2,4 : franchement au-dessus du seuil de bloom (1,02). À 1,16 le ciel restait un
       // aplat gris-bleu sans halo, et la verrière n'« éclairait » plus l'image.
       color: new THREE.Color(2.35, 2.45, 2.6),
@@ -147,12 +183,12 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     });
     panes.push(paneMat);
     const pane = new THREE.Mesh(
-      new THREE.PlaneGeometry(wellW * 2 + 0.04, wellL * 2 + 0.04),
+      new THREE.PlaneGeometry(wellX * 2 + 0.04, wellZ * 2 + 0.04),
       paneMat,
     );
     pane.rotation.x = Math.PI / 2;
-    pane.position.set(0, paneY, cz);
-    pane.name = `verriere-${zone.id}`;
+    pane.position.set(cx, paneY, cz);
+    pane.name = `verriere-${room.id}`;
     group.add(pane);
 
     // Meneaux : 36-48 mm. Une verrière d'atelier, pas une huisserie.
@@ -163,15 +199,14 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
       g.translate(x, y, z);
       bronze.push(g);
     };
-    mull(wellW * 2, 0.038, ringW, 0, my, cz - wellL + ringW / 2);
-    mull(wellW * 2, 0.038, ringW, 0, my, cz + wellL - ringW / 2);
-    mull(ringW, 0.038, wellL * 2, -wellW + ringW / 2, my, cz);
-    mull(ringW, 0.038, wellL * 2, wellW - ringW / 2, my, cz);
-    mull(0.026, 0.042, wellL * 2, 0, my, cz);
-    const nZ = Math.max(1, Math.round(wellL / 1.5));
+    mull(wellX * 2, 0.038, ringW, cx, my, cz - wellZ + ringW / 2);
+    mull(wellX * 2, 0.038, ringW, cx, my, cz + wellZ - ringW / 2);
+    mull(ringW, 0.038, wellZ * 2, cx - wellX + ringW / 2, my, cz);
+    mull(ringW, 0.038, wellZ * 2, cx + wellX - ringW / 2, my, cz);
+    mull(0.026, 0.042, wellZ * 2, cx, my, cz);
+    const nZ = Math.max(1, Math.round(wellZ / 1.5));
     for (let k = 1; k < nZ; k++) {
-      const z = cz - wellL + (wellL * 2 * k) / nZ;
-      mull(wellW * 2, 0.042, 0.026, 0, my, z);
+      mull(wellX * 2, 0.042, 0.026, cx, my, cz - wellZ + (wellZ * 2 * k) / nZ);
     }
 
     const add = (parts: THREE.BufferGeometry[], mat: THREE.Material, name: string): void => {
@@ -185,9 +220,8 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
       m.receiveShadow = shadows;
       group.add(m);
     };
-    add(painted, mats.painted, `charpente-${zone.id}`);
-    add(bronze, mats.bronze, `meneaux-${zone.id}`);
-
+    add(painted, mats.painted, `charpente-${room.id}`);
+    add(bronze, mats.bronze, `meneaux-${room.id}`);
   }
 
   return {

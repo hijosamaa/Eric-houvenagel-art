@@ -3,7 +3,7 @@
  * contrôleur du pool de spots de tableau (hystérésis + fondu 350 ms, P1-4).
  *
  * `main.ts` ne doit plus positionner les spots « à la main » : il appelle
- * `spots.update(camZ, layout.placed, dt)` une fois par frame (voir
+ * `spots.update(cam, layout.placed, dt)` une fois par frame (voir
  * docs/design/3d-integration.md). Tant que ce branchement n'est pas fait, l'ancienne
  * boucle continue de fonctionner : les spots créés ici portent déjà les bons cône /
  * décroissance / couleur, et leurs ombres sont isolées du toit (layer ROOF_LAYER).
@@ -186,7 +186,7 @@ export class TableSpots {
    * Met à jour les spots. Renvoie `true` si une affectation a changé (utile pour
    * invalider les shadow maps quand elles sont mises à jour à la demande).
    */
-  update(camZ: number, placed: PlacedWork[], dt: number): boolean {
+  update(cam: { x: number; z: number }, placed: PlacedWork[], dt: number): boolean {
     const n = this.pool.length;
     if (placed.length === 0) {
       for (let i = 0; i < n; i++) {
@@ -203,7 +203,7 @@ export class TableSpots {
       this.bestIdx[i] = -1;
     }
     for (let j = 0; j < placed.length; j++) {
-      let d = Math.abs(placed[j].z - camZ);
+      let d = Math.hypot(placed[j].viewX - cam.x, placed[j].viewZ - cam.z);
       for (let i = 0; i < n; i++) {
         if (this.assigned[i] === j && this.blend[i] > 0) d -= TABLE_SPOT.hysteresis;
       }
@@ -245,12 +245,20 @@ export class TableSpots {
         continue;
       }
       const p = placed[idx];
-      // le spot est décalé du mur dans la direction de la normale du tableau (faceX)
-      s.position.set(p.x + p.faceX * FRAME_METRICS.spotZ, p.y + FRAME_METRICS.spotY, p.z);
-      s.target.position.set(p.x + p.faceX * 0.06, p.y + FRAME_METRICS.targetY, p.z);
+      // le spot est décalé du mur dans la direction de la normale de la toile
+      s.position.set(
+        p.x + p.nx * FRAME_METRICS.spotZ,
+        p.y + FRAME_METRICS.spotY,
+        p.z + p.nz * FRAME_METRICS.spotZ,
+      );
+      s.target.position.set(
+        p.x + p.nx * 0.06,
+        p.y + FRAME_METRICS.targetY,
+        p.z + p.nz * 0.06,
+      );
       s.target.updateMatrixWorld();
       // fondu d'affectation × atténuation douce par distance : jamais de coupure nette
-      const d = Math.abs(p.z - camZ);
+      const d = Math.hypot(p.viewX - cam.x, p.viewZ - cam.z);
       const distFade = Math.min(1, Math.max(TABLE_SPOT.distFadeMin, 1.25 - d / TABLE_SPOT.distFadeRange));
       s.intensity =
         (TABLE_SPOT.intensity + (idx === this.hoverIndex ? TABLE_SPOT.hoverBoost : 0)) * ease(this.blend[i]) * distFade;
@@ -289,16 +297,20 @@ export class TableSpots {
  * de ~40° entre les deux extrémités de la salle).
  * Renvoie `true` quand la fenêtre a effectivement bougé.
  */
-export function updateSunShadow(sun: THREE.DirectionalLight, camZ: number): boolean {
-  const q = Math.round(camZ / SUN.shadow.quantum) * SUN.shadow.quantum;
-  const cam = sun.shadow.camera;
-  if (Math.abs(sun.target.position.z - q) < 1e-4) return false;
-  sun.target.position.set(0, 0, q);
-  sun.position.set(SUN.position.x, SUN.position.y, q + SUN.position.z);
-  cam.top = SUN.shadow.halfZ;
-  cam.bottom = -SUN.shadow.halfZ;
-  cam.left = -SUN.shadow.halfX;
-  cam.right = SUN.shadow.halfX;
-  cam.updateProjectionMatrix();
+export function updateSunShadow(sun: THREE.DirectionalLight, cam: { x: number; z: number }): boolean {
+  const q = SUN.shadow.quantum;
+  const qx = Math.round(cam.x / q) * q;
+  const qz = Math.round(cam.z / q) * q;
+  const sc = sun.shadow.camera;
+  if (Math.abs(sun.target.position.x - qx) < 1e-4 && Math.abs(sun.target.position.z - qz) < 1e-4) {
+    return false;
+  }
+  sun.target.position.set(qx, 0, qz);
+  sun.position.set(qx + SUN.position.x, SUN.position.y, qz + SUN.position.z);
+  sc.top = SUN.shadow.halfZ;
+  sc.bottom = -SUN.shadow.halfZ;
+  sc.left = -SUN.shadow.halfX;
+  sc.right = SUN.shadow.halfX;
+  sc.updateProjectionMatrix();
   return true;
 }
