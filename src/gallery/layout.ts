@@ -620,7 +620,8 @@ export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
   }
 
   // ---- retour au sas, face au mur du nom ----
-  const endZ = nRooms < 4 ? SAS_HALF - 2.4 : 0;
+  // 3,4 m du mur du nom (et non 2,4) : à 2,4 m, le titre de 3 m débordait de l'écran.
+  const endZ = nRooms < 4 ? SAS_HALF - 3.4 : 0;
   pathRaw.push({ x: 0, z: endZ, yaw: Math.PI, s: 0 });
 
   // ---- parcours : congés + caps ----

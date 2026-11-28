@@ -300,17 +300,18 @@ function plaqueTexture(text: string): THREE.CanvasTexture {
 
 /** Mur du fond : nom de l'artiste + sous-titre, comme un texte de salle. */
 function wallSignTexture(name: string, tagline: string): THREE.CanvasTexture {
-  const w = 2048;
-  const h = 1024;
+  // Le dessin est écrit en 1024 × 512 (repère logique) puis rendu en 2048 × 1024 : le mur
+  // du nom fait 2 m de large et se lit face à l'entrée. `w`/`h` sont le repère LOGIQUE —
+  // les centrages s'y réfèrent, donc ils doivent rester 1024 × 512 après le `scale`.
+  const w = 1024;
+  const h = 512;
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
+  c.width = w * 2;
+  c.height = h * 2;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
-  g.clearRect(0, 0, w, h);
-  // Le dessin est écrit pour un canvas de 1024 × 512 : on le met à l'échelle 2× pour le
-  // rendre net sur 2048 × 1024 (le mur du nom se lit à 6 m, face à l'entrée).
-  g.scale(w / 1024, h / 512);
+  g.clearRect(0, 0, c.width, c.height);
+  g.scale(2, 2);
 
   const spaced = (text: string, y: number, font: string, color: string, tracking: number): void => {
     g.font = font;
@@ -822,7 +823,9 @@ export function createScene(
   // dernière en repartant. Le parcours se termine pile devant lui.
   if (opts.artist) {
     const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.9, 1.95),
+      // 3,0 × 1,5 m : un titre d'exposition, pas une enseigne. À 3,9 m de large et 2,4 m
+      // de la caméra (pose de fin), le nom sortait du cadre des deux côtés.
+      new THREE.PlaneGeometry(3.0, 1.5),
       new THREE.MeshStandardMaterial({
         map: wallSignTexture(opts.artist, opts.tagline ?? 'Huile & aquarelle'),
         transparent: true,
