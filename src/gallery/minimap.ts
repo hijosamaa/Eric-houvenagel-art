@@ -45,11 +45,13 @@ export class Minimap {
     svg.setAttribute('aria-label', 'Plan de la galerie');
     this.svg = svg;
 
-    // ---- parcours guidé (pointillé fin, sous les salles) ----
-    const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    route.setAttribute('points', layout.path.map((n) => `${n.x},${n.z}`).join(' '));
-    route.setAttribute('class', 'mm-route');
-    svg.appendChild(route);
+    // ---- parcours : supprimé du plan ----
+    //
+    // Le tracé était lisible tant que le parcours suivait les murs. Depuis qu'il recule
+    // entre deux toiles d'un même mur, la polyligne entre et sort de chaque pièce en
+    // zigzag : sur un plan de 96 px de haut, elle dessinait une pelote de traits qui
+    // masquait les murs et les toiles. Un plan de musée ne montre pas le chemin — il
+    // montre les pièces, les œuvres et où l'on est.
 
     // ---- salles ----
     layout.rooms.forEach((room, zi) => {
