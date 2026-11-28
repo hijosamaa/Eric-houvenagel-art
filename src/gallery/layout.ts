@@ -139,7 +139,14 @@ export interface PlacedWork {
   /** Pose d'observation (mode guidé) et centre du palier de scroll. */
   viewX: number;
   viewZ: number;
+  /** Position dans le **scroll** (0..1) : c'est là qu'il faut amener la page. */
   scrollT: number;
+  /**
+   * Position **curviligne** de l'arrêt (0..1). Les deux diffèrent depuis que le scroll est
+   * repondéré : traverser le sas coûtait 8,7 fois le prix d'un pas d'une toile à l'autre
+   * (4 830 px de molette dans un hall vide), donc chaque intervalle est plafonné.
+   */
+  viewU: number;
 }
 
 export interface PathNode {
@@ -283,7 +290,7 @@ const SHELLS: RoomShell[] = [
   { height: 3.8, skyW: 3.2, skyL: 7.4, beams: 3 },
 ];
 
-const LOBBY_SHELL: RoomShell = { height: LOBBY_H, skyW: 3.6, skyL: 3.6, beams: 0 };
+const LOBBY_SHELL: RoomShell = { height: LOBBY_H, skyW: 2.6, skyL: 2.6, beams: 0 };
 
 /**
  * Répartition des œuvres sur les trois murs d'une salle : [gauche, fond, droite].
@@ -545,6 +552,7 @@ export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
         viewX,
         viewZ,
         scrollT: 0,
+        viewU: 0,
       });
       pathRaw.push({ x: viewX, z: viewZ, yaw: yawFor(-nx, -nz), s: 0, work: placed.length - 1 });
     };
@@ -624,8 +632,29 @@ export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
     const node = path.find((n) => n.work === i);
     return node ? node.s / total : 0;
   });
+  // ---- repondération du scroll ----
+  //
+  // `centers` est proportionnel à la distance parcourue : un pas de 3 m entre deux toiles
+  // coûtait 560 px de molette, la traversée de 20 m du sas 4 830 px — 39 crans dans un
+  // hall où il n'y a rien à lire. On plafonne donc chaque intervalle à `SCROLL_CAP` fois
+  // la **médiane** des intervalles entre œuvres : les trajets longs se font plus vite,
+  // les arrêts gardent leur place. La courbe reste strictement croissante (aucun palier
+  // ne se confond avec son voisin), et `at()` n'est pas touché : c'est le paramètre de
+  // scroll qui se resserre, pas la géométrie.
+  const stops: number[] = [...centers, 1];
+  const gaps = stops.map((c, i) => Math.max(1e-6, c - (i === 0 ? 0 : stops[i - 1])));
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0.03;
+  const weights = gaps.map((g) => Math.min(g, median * 1.9));
+  const wsum = weights.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  const scrollCenters = centers.map((_c, i) => {
+    acc += weights[i];
+    return acc / wsum;
+  });
   placed.forEach((p, i) => {
-    p.scrollT = centers[i];
+    p.scrollT = scrollCenters[i];
+    p.viewU = centers[i];
   });
 
   // ---- bornes ----
@@ -781,10 +810,13 @@ function shortest(a: number, b: number): number {
 /** Courbe de « dwell » : monotone [0,1] → [0,1], de dérivée nulle autour de chaque centre. */
 export const DWELL_HALF = 0.08;
 
-export function createDwellCurve(centers: number[]): (t: number) => number {
+export function createDwellCurve(centers: number[], values?: number[]): (t: number) => number {
   const cs = [...centers].sort((a, b) => a - b);
   const n = cs.length;
   if (n === 0) return (t) => clamp(t, 0, 1);
+  // `values` (défaut : les centres) permet de faire correspondre un paramètre de scroll
+  // repondéré à une position curviligne différente (voir `computeLayout`).
+  const vs = values ? [...values].sort((a, b) => a - b) : cs;
   const half = cs.map((c, i) => {
     const gap = Math.min(i > 0 ? c - cs[i - 1] : c, i < n - 1 ? cs[i + 1] - c : 1 - c);
     return Math.min(DWELL_HALF, 0.45) * gap;
@@ -797,11 +829,11 @@ export function createDwellCurve(centers: number[]): (t: number) => number {
       const a = Math.max(0, cs[i] - half[i]);
       const b = Math.min(1, cs[i] + half[i]);
       if (x <= b) {
-        if (x >= a) return cs[i];
-        return prevVal + (cs[i] - prevVal) * smooth((x - prevEnd) / Math.max(1e-9, a - prevEnd));
+        if (x >= a) return vs[i];
+        return prevVal + (vs[i] - prevVal) * smooth((x - prevEnd) / Math.max(1e-9, a - prevEnd));
       }
       prevEnd = b;
-      prevVal = cs[i];
+      prevVal = vs[i];
     }
     return prevVal + (1 - prevVal) * smooth((x - prevEnd) / Math.max(1e-9, 1 - prevEnd));
   };

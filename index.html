@@ -58,6 +58,7 @@
             <button id="btn-next" class="nav-btn" aria-label="Œuvre suivante">
               <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M1 1l4.6 5L1 11" /></svg>
             </button>
+            <button id="btn-free" class="nav-link">Explorer librement</button>
             <button id="btn-index" class="nav-link">Index</button>
           </div>
         </div>
@@ -65,7 +66,13 @@
 
       <div id="toast" role="status"></div>
 
-      <aside id="panel" aria-label="Fiche de l'œuvre">
+      <aside
+        id="panel"
+        role="dialog"
+        aria-modal="false"
+        aria-hidden="true"
+        aria-label="Fiche de l’œuvre"
+      >
         <div id="panel-bar">
           <button id="panel-back">
             <svg viewBox="0 0 7 12" aria-hidden="true"><path d="M6 1 1.4 6 6 11" /></svg>
@@ -109,7 +116,6 @@
         <div id="index-head">
           <h2>L'index des œuvres</h2>
           <div id="index-head-actions">
-            <button id="btn-free" class="nav-link">Explorer librement</button>
             <button id="index-close" class="nav-btn" aria-label="Fermer l'index">
               <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" /></svg>
             </button>

@@ -51,6 +51,12 @@ export class GalleryControls {
   private readonly layout: Layout;
   /** Courbe de « dwell » : arrêts devant chaque œuvre. Repli linéaire si `reduced`. */
   private readonly dwell: (t: number) => number;
+  /**
+   * Le scroll ne pilote le parcours qu'une fois l'intro franchie. Avant, l'internaute
+   * pouvait faire 6 000 px de molette sur l'écran d'entrée : le clic sur « Entrer »
+   * l'expédiait ensuite au milieu de la salle 1, sas et six toiles sautés.
+   */
+  scrollEnabled = false;
   private readonly pos: THREE.Vector3;
   private readonly raycaster = new THREE.Raycaster();
   private targetT = 0;
@@ -77,7 +83,10 @@ export class GalleryControls {
     const start = layout.at(0);
     this.pos = new THREE.Vector3(start.x, EYE_Y, start.z);
     this.viewYaw = start.yaw;
-    this.dwell = createDwellCurve(layout.placed.map((p) => p.scrollT));
+    this.dwell = createDwellCurve(
+      layout.placed.map((p) => p.scrollT),
+      layout.placed.map((p) => p.viewU),
+    );
 
     window.addEventListener('scroll', () => this.readScroll(), { passive: true });
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -342,6 +351,7 @@ export class GalleryControls {
   }
 
   private readScroll(): void {
+    if (!this.scrollEnabled) return;
     if (this.mode !== 'guided') return;
     const spacer = document.getElementById('scroll-spacer');
     if (!spacer) return;

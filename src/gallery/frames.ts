@@ -56,7 +56,7 @@ export const FRAME_METRICS = {
   /** Ordonnée locale de la cible du spot : centre de la toile (éclairage uniforme). */
   targetY: 0.0,
   /** Luminance HDR de la lentille (MeshBasic HDR, avant tone mapping) — juste au-dessus du seuil de bloom. */
-  lensPeak: 1.12,
+  lensPeak: 0.42,
   /** Largeur du tube en fraction de la largeur de toile. */
   luminaireRatio: 0.62,
 } as const;
@@ -177,11 +177,14 @@ function materials(): NonNullable<typeof matCache> {
     // chaud et flou) et la dorure perdait sa couleur propre — elle lisait bronze/olive
     // dès que l'angle changeait. À 0,78 il reste de l'or diffus.
     color: 0xd9ae62,
-    roughness: 0.4,
-    metalness: 0.82,
+    // 0,55 et un environnement plus fort (2,6) : à 0,82/1,5 la dorure ne renvoyait
+    // qu'une IBL à faible dynamique et virait à l'olive dans les angles (mesuré
+    // RGB 166,152,124 à 35°). Un or plus diffus garde sa couleur dans toutes les faces.
+    roughness: 0.52,
+    metalness: 0.55,
     clearcoat: 0.16,
     clearcoatRoughness: 0.35,
-    envMapIntensity: 1.5,
+    envMapIntensity: 3.5,
     side: THREE.DoubleSide,
   });
   const mat = new THREE.MeshStandardMaterial({ color: 0xf6f2e9, roughness: 0.96, envMapIntensity: 0.2 });
@@ -190,7 +193,7 @@ function materials(): NonNullable<typeof matCache> {
   // Bronze brun plutôt que laiton clair : un luminaire de tableau peint en bronze
   // disparaît dans le mur, un luminaire laiton clair devient une baguette de bois
   // clair posée au-dessus de la toile (c'était le cas, et cela attirait l'œil).
-  const brass = new THREE.MeshStandardMaterial({ color: 0x4a4238, roughness: 0.38, metalness: 0.62, envMapIntensity: 0.7 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0x2e2a24, roughness: 0.5, metalness: 0.35, envMapIntensity: 0.7 });
   // Lentille : luminance HDR constante (non éclairée) → seul émissif volontaire de l'œuvre.
   const lens = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const k = FRAME_METRICS.lensPeak;
@@ -414,6 +417,8 @@ export interface FrameBuild {
   readonly imageZ: number;
   /** Demi-largeur extérieure du cadre (positionnement du cartel). */
   readonly halfWidth: number;
+  /** Demi-hauteur extérieure du cadre (halo d'ombre au mur). */
+  readonly halfHeight: number;
   /** Luminaire (tube + bras + lentille) ou null en variante muséale. */
   readonly luminaire: THREE.Object3D | null;
   /** Ancre locale du spot, dans le luminaire (repère du groupe). */
@@ -540,6 +545,7 @@ export function buildFrame(
     root,
     imageZ: spec.canvasZ,
     halfWidth: openingHalf[0] + spec.frameWidth,
+    halfHeight: openingHalf[1] + spec.frameWidth,
     luminaire,
     spotLocal: new THREE.Vector3(0, FRAME_METRICS.spotY, FRAME_METRICS.spotZ),
     spotTargetLocal: new THREE.Vector3(0, FRAME_METRICS.targetY, 0.06),

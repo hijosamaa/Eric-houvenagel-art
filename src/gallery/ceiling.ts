@@ -176,9 +176,10 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     const paneY = H + SLAB_THICKNESS - 0.03;
     const paneMat = new THREE.MeshBasicMaterial({
       map: skyTexture(),
-      // 2,4 : franchement au-dessus du seuil de bloom (1,02). À 1,16 le ciel restait un
-      // aplat gris-bleu sans halo, et la verrière n'« éclairait » plus l'image.
-      color: new THREE.Color(2.35, 2.45, 2.6),
+      // 1,35 : le ciel reste au-dessus du seuil de bloom (1,02) mais ne se clippe plus en
+      // aplat blanc (mesure : 60,8 % des pixels de la vue plafond étaient > 240). Un
+      // vitrage doit lire comme un ciel, avec une valeur — pas comme un caisson.
+      color: new THREE.Color(1.35, 1.42, 1.55),
       fog: false,
     });
     panes.push(paneMat);
@@ -191,22 +192,24 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     pane.name = `verriere-${room.id}`;
     group.add(pane);
 
-    // Meneaux : 36-48 mm. Une verrière d'atelier, pas une huisserie.
+    // Meneaux : 90 mm de pourtour et 40 mm de traverses. À 36-48 mm, vus d'en bas à 4 m,
+    // ils ne faisaient que 6 à 10 niveaux d'écart avec le vitrage : la verrière lisait
+    // comme une plaque de lumière sans trame.
     const my = paneY - 0.03;
-    const ringW = 0.048;
+    const ringW = 0.09;
     const mull = (w: number, h: number, d: number, x: number, y: number, z: number): void => {
       const g = new THREE.BoxGeometry(w, h, d);
       g.translate(x, y, z);
       bronze.push(g);
     };
-    mull(wellX * 2, 0.038, ringW, cx, my, cz - wellZ + ringW / 2);
-    mull(wellX * 2, 0.038, ringW, cx, my, cz + wellZ - ringW / 2);
-    mull(ringW, 0.038, wellZ * 2, cx - wellX + ringW / 2, my, cz);
-    mull(ringW, 0.038, wellZ * 2, cx + wellX - ringW / 2, my, cz);
-    mull(0.026, 0.042, wellZ * 2, cx, my, cz);
+    mull(wellX * 2, 0.06, ringW, cx, my, cz - wellZ + ringW / 2);
+    mull(wellX * 2, 0.06, ringW, cx, my, cz + wellZ - ringW / 2);
+    mull(ringW, 0.06, wellZ * 2, cx - wellX + ringW / 2, my, cz);
+    mull(ringW, 0.06, wellZ * 2, cx + wellX - ringW / 2, my, cz);
+    mull(0.04, 0.065, wellZ * 2, cx, my, cz);
     const nZ = Math.max(1, Math.round(wellZ / 1.5));
     for (let k = 1; k < nZ; k++) {
-      mull(wellX * 2, 0.042, 0.026, cx, my, cz - wellZ + (wellZ * 2 * k) / nZ);
+      mull(wellX * 2, 0.065, 0.04, cx, my, cz - wellZ + (wellZ * 2 * k) / nZ);
     }
 
     const add = (parts: THREE.BufferGeometry[], mat: THREE.Material, name: string): void => {

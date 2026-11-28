@@ -26,6 +26,8 @@ export class Minimap {
   private readonly camMark: SVGGElement;
   private readonly roomRects: SVGRectElement[] = [];
   private readonly stops = new Map<string, SVGElement>();
+  /** Trait + zone de clic par œuvre, pour recalculer leur longueur minimale. */
+  private readonly stopGeom: { line: SVGLineElement; hit: SVGLineElement; p: PlacedWork }[] = [];
 
   constructor(root: HTMLElement, layout: Layout) {
     this.layout = layout;
@@ -102,6 +104,21 @@ export class Minimap {
         t.appendChild(ti);
         svg.appendChild(t);
         this.stops.set(p.work.id, t);
+
+        // Zone de clic : 2 px de trait ne se visent pas au doigt. Une réplique transparente
+        // de 3 unités (≈ 14 px à l'échelle du plan) porte le clic et le survol.
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        hit.setAttribute('x1', t.getAttribute('x1')!);
+        hit.setAttribute('y1', t.getAttribute('y1')!);
+        hit.setAttribute('x2', t.getAttribute('x2')!);
+        hit.setAttribute('y2', t.getAttribute('y2')!);
+        hit.setAttribute('class', 'mm-hit');
+        hit.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.onPick?.(p);
+        });
+        svg.appendChild(hit);
+        this.stopGeom.push({ line: t, hit, p });
       }
     });
 
@@ -121,9 +138,33 @@ export class Minimap {
     root.appendChild(svg);
   }
 
-  /** Plus rien à mesurer : le plan est en unités du monde. Conservé pour l'API de main.ts. */
+  /**
+   * Longueur minimale d'un trait de toile, en unités du monde.
+   *
+   * À 96 px de haut pour 29 m, une aquarelle de 1,5 m ne fait que 5 px : à l'écran, une
+   * poussière. On impose 9 px et on prolonge le trait symétriquement autour du centre de
+   * la toile — la position reste juste, c'est la longueur qui ment un peu.
+   */
   relayout(): void {
-    /* no-op */
+    const box = this.svg.getBBox();
+    const px = this.svg.getBoundingClientRect().height;
+    if (px <= 0 || box.height <= 0) return;
+    const minLen = 9 / (px / box.height);
+    for (const g of this.stopGeom) {
+      const w = Math.max(g.p.w, minLen);
+      const tx = -g.p.nz;
+      const tz = g.p.nx;
+      const x1 = g.p.x - (tx * w) / 2;
+      const z1 = g.p.z - (tz * w) / 2;
+      const x2 = g.p.x + (tx * w) / 2;
+      const z2 = g.p.z + (tz * w) / 2;
+      for (const el of [g.line, g.hit]) {
+        el.setAttribute('x1', String(x1));
+        el.setAttribute('y1', String(z1));
+        el.setAttribute('x2', String(x2));
+        el.setAttribute('y2', String(z2));
+      }
+    }
   }
 
   update(pos: { x: number; z: number }, yaw: number, currentId: string | null): void {

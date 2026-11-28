@@ -128,3 +128,93 @@ Corrigé dans `vibe/salles-30` :
 Reste ouvert (P1/P2, non bloquant) : moulure dorée encore « plate » (profil en tons cuits),
 chaux avec rayures à 1 m, plantes en brindilles, `prefers-reduced-motion` non testé sur le
 dwell, aide clavier du mode libre à afficher aussi en permanence.
+
+---
+
+# Session « plan compact + lumière directe » (branche `vibe/plan-sas-central`)
+
+## Le plan : plus de couloir
+
+Le parcours était un hall de **90,2 × 8,6 m** (ratio 10,5:1, 28 m par salle) : une ligne de
+vue de 90 m, aucun repère, et l'impression d'un couloir. Le plan est maintenant un **sas
+central de 12 × 12 m** entouré de **trois salles de 12 × 14 m** (nord, est, ouest), pavées
+exactement (aucun recouvrement) et parcourues **en boucle** : sas → nord → sas → est → sas →
+ouest → sas. Chaque salle accroche sur **trois murs** (4 + 2 + 4 toiles), la quatrième paroi
+portant la baie : on entre, on fait le U, on ressort. **Aucune ligne de vue ne dépasse 14 m.**
+
+Bug attrapé par la mesure (à ne pas réintroduire) : avec un sas de 9,6 m et des salles de
+15 m, les pièces se **chevauchaient de 2,7 m** dans les angles, et une toile de la salle
+ouest traversait le mur de la salle nord. Règle : `ROOM_LAT = 2 * SAS_HALF`.
+
+## Navigation : quatre modes, dont un scroll repondéré
+
+| Mode | Comment | Détail |
+|---|---|---|
+| Scroll | molette / geste | parcours cap-à-cap, paliers exacts devant chaque toile (`createDwellCurve`) |
+| Flèches | `‹` `›`, ←/→, ←/→ d'une fiche | saut au palier voisin |
+| Mini-plan | clic sur une salle ou sur un trait de toile | plan **à l'échelle** en SVG (viewBox en mètres) |
+| Visite libre | bouton « Explorer librement », ZQSD, souris | Rapier pour les murs, Échap resynchronise |
+
+Le scroll était **proportionnel à la distance** : un pas de 3 m entre deux toiles coûtait
+560 px de molette, la traversée de 20 m du sas **4 830 px** (39 crans dans un hall vide).
+Chaque intervalle est désormais plafonné à 1,9 × la médiane des intervalles entre toiles
+(`viewU` = position curviligne, `scrollT` = position de scroll). Le sas coûte 1,9 fois un
+pas de toile, plus 8,7.
+
+Autres corrections de la session (audit UX) : l'état **0 œuvre** affiche « Aucune œuvre
+publiée » au lieu d'un « Chargement… » éternel ; la fiche est `role="dialog"` + `aria-hidden`
++ `visibility: hidden` fermée (6 contrôles n'étaient plus tabulables hors écran) avec entrée
+et restitution du focus ; les pastilles de salle sont numérotées 1…3 (le sas porte une
+maison) et se décalent quand la fiche est ouverte ; le plan a des traits **non scalants** en
+pixels (murs 1,4 px à 3,4:1, toiles ≥ 9 px avec zone de clic de 14 px, numéros sans
+contour) et une plaque opaque sur tablette/mobile ; la barre passe sur **deux lignes dès
+1100 px** (le plan disparaissait entre 721 et 880 px) ; l'intro ne laisse plus scroller avant
+« Entrer ».
+
+## Lumière : d'une ambiance à une lumière directe
+
+Mesure d'attribution avant : **94 % de la lumière était ambiante**, un mur tenait dans
+**9 niveaux d'amplitude**, 49 % des pixels d'une prise dans une seule tranche de 16 niveaux,
+et une aquarelle ressortait **31 niveaux plus sombre que le mur** qui la porte.
+
+| Levier | Avant | Après |
+|---|---|---|
+| `HEMI.intensity` | 0,34 | 0,20 |
+| `scene.environmentIntensity` | 0,58 | 0,34 |
+| `dalle.emissiveIntensity` | 0,13 | 0,05 |
+| `SKY_FILL` (une seule lumière, **suit la pièce**) | 0,42 fixe, 5,4 × 26 m au centre du hall | 0,34, à la taille de la trémie de la pièce courante |
+| `SUN.intensity` | 2,3 | 3,2 |
+| `TABLE_SPOT.intensity` | 1,15 | **4,0** |
+| Pool de spots | 6 | 12 |
+| `toneMappingExposure` | 0,94 | 1,02 |
+| Courbe finale (S) | aucune | `contrast 0,26`, `lift −0,008` |
+| Fenêtre d'ombre du soleil | ±9 × ±21 m | ±15 × ±16 m (4096²) — les salles est/ouest sortaient du champ |
+
+C'était **la** cause du délavé du sas : l'unique `RectAreaLight` de ciel, héritée du couloir,
+était posée au centre du hall en 5,4 × 26 m et l'éclairait sans aucune occlusion (une
+`RectAreaLight` ne projette pas d'ombre). Elle est désormais une lumière **par pièce**,
+placée sous la trémie, à la taille de la verrière, avec un fondu de 0,45 s au passage d'une
+baie (`lights.updateSkyFill`).
+
+Autres corrections de rendu : halo d'**ombre de contact** derrière chaque cadre (le mur sous
+un cadre mesurait exactement la valeur du mur nu) ; verrière ramenée de 2,35 à 1,35 linéaire
+(60,8 % de la vue plafond étaient clippés) avec des meneaux de 90/40 mm et un bronze sombre ;
+parquet désaturé à 30 % puis reverni (roughness 0,50, clearcoat 0,28) ; tuile de chaux
+ramenée de 3,4 à 1,7 m (les taloches faisaient 80 cm) ; dorure en `metalness` 0,55 avec
+`envMapIntensity` 3,5 ; cartel élargi à 24 × 14,8 cm ; plaques de salle et mur du nom en
+2048 px / aniso 16 ; **cartouche d'entrée supprimé** (il répétait le mot-symbole, flottait
+devant le mur et se lisait mal à 12 m).
+
+Mesures après (captures 1440 × 900, `?dup=6`) : sas **130** de moyenne (p05 104, p95 154),
+salles **115-138** (p05 46-61, p95 156-201). La dynamique est passée de 53 à ~100 niveaux.
+
+## Reste ouvert
+
+- `public/data/images/baigneuse.jpg` est une **capture d'écran Instagram** : le badge « 1/2 »
+  et l'avatar sont incrustés dans l'image, visibles sur 6 des 30 accrochages en `?dup=6`.
+  Il faut un export propre (l'utilisateur doit le fournir).
+- Les masters font 1080 px : à DPR 2 la toile est agrandie de 1,24×. 1600 px seraient
+  nécessaires pour un vrai 4K.
+- Les plantes restent des « stickers » (12 feuilles plates, pas d'AO) — pistes chiffrées dans
+  `.vibe/audit-rendu/RAPPORT.md` §10.
+- Aucun fichier de `src/` n'est couvert par un test automatisé hors `probe.mjs` (géométrie).

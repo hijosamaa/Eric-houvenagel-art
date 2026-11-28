@@ -75,6 +75,15 @@ Après dépôt, vérifie visuellement (les screenshots : `node .vibe/shotkit/sho
 
 ---
 
+## Qualité des masters d'œuvres (à reprendre)
+
+Les masters de `public/data/images/` font **1080 px** de côté. À DPR 2, une toile de 1,5 m
+vue à 2,9 m occupe ~1 340 px d'écran : l'image est donc **agrandie de 1,24×**. Il faudrait
+des exports à **1 600-2 000 px** pour un rendu réellement 4K sur écran Retina.
+
+Et `baigneuse.jpg` est une **capture d'écran Instagram** (badge « 1/2 » en haut à droite,
+avatar rond en bas à gauche, tous deux incrustés dans l'image) : à refaire depuis l'original.
+
 ## À demander maintenant (slots encore sans asset IA)
 
 Ces trois slots tournent aujourd'hui sur le générateur procédural : c'est correct, mais un
@@ -116,8 +125,8 @@ salles d'accrochage.
 `precalcTexture()` demande, dans cet ordre :
 
 1. `assets/textures/ai/<name>.webp` puis `.jpg` — **pleine résolution 2048²** (priorité HD) ;
-2. sur mobile (`maxSize ≤ 1024`), la variante `-1024` est demandée **avant** la pleine
-   résolution, pour ne pas décoder une 2048² juste afin de la réduire ;
+2. la variante `-1024` n'est demandée qu'**en repli** : la pleine résolution passe
+   toujours d'abord (sur mobile compris), sinon on ne voit jamais l'asset HD ;
 3. `assets/textures/<name>-<taille>.webp` (généré au build par `scripts/gen-textures.mjs`) ;
 4. le générateur canvas interne.
 

@@ -33,6 +33,8 @@ export interface SceneContext {
   camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight;
   spotPool: THREE.SpotLight[];
+  /** Ciel diffus de la trémie, déplacé par `main.ts` dans la pièce courante. */
+  skyFill: THREE.RectAreaLight | null;
   /** Contrôleur du pool de spots (hystérésis + fondu). `main.ts` l'appelle par frame. */
   spots: TableSpots;
   /** Végétation (oscillation) — `main.ts` appelle `plants.update(elapsed, reduced)`. */
@@ -47,14 +49,14 @@ export interface SceneContext {
  * 600 px/m, la trame de badigeon garde sa finesse sans montrer la tuile (répétition en
  * miroir, `mirror: true` dans plasterTexture).
  */
-const PLASTER_TILE = 3.4;
+const PLASTER_TILE = 1.7;
 /**
  * Dimensions (m) de la tuile de parquet, renseignées par `floorTextures()`.
  * Le sol n'a plus besoin d'être découpé en 56 lames : l'asset porte les lames, on ne
  * garde de la géométrie qu'un maillage régulier pour l'occlusion de contact au pied
  * des murs (une couleur de sommet par sommet).
  */
-const FLOOR_TILE: [number, number] = [1.4, 2.4];
+const FLOOR_TILE: [number, number] = [2.1, 3.6];
 /**
  * Hauteur de la cimaise (filet d'accrochage au-dessus des toiles). Elle court dans toutes
  * les salles à la même hauteur : c'est la seule ligne continue du lieu, et c'est elle qui
@@ -89,7 +91,11 @@ function buildEnvironmentScene(): THREE.Scene {
   // zénith : la verrière (bande longue et très lumineuse)
   const sky = new THREE.Mesh(
     new THREE.PlaneGeometry(5.6, 38),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(3.0, 3.25, 3.6) }),
+    // 3,4 linéaire, et c'est la **dorure** qui a son propre multiplicateur (envMapIntensity
+    // 3,5) : monter l'enveloppe à 7,0 éclairait aussi les murs (moyenne +30 niveaux). Un
+    // matériau métallique doit chercher sa réserve dans son envMapIntensity, pas imposer
+    // un ciel surexposé à tout le lieu.
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(3.4, 3.5, 3.65) }),
   );
   sky.rotation.x = Math.PI / 2;
   sky.position.set(0, 3.6, 0);
@@ -100,7 +106,7 @@ function buildEnvironmentScene(): THREE.Scene {
   // « contreplaqué » : un plafond peint ne peut pas être plus chaud que ses murs.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(18, 44),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.52, 0.48) }),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 0.47, 0.42) }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.02;
@@ -137,8 +143,11 @@ function plasterTexture(aniso: number, coarse = false, extraGrade = '', slot = '
     repeat: [1, 1],
     maxSize: coarse ? 1024 : 2048,
     // grade : l'asset est une chaux trowelée dont les coups de taloche sont très
-    // contrastés ; adoucis, ils deviennent des nuances de badigeon.
-    grade: `saturate(0.8) brightness(1.06) contrast(0.78) ${extraGrade}`.trim(),
+    // contrastés ; adoucis, ils deviennent des nuances de badigeon. Mais un contraste de
+    // 0,68 tirait *toute* la texture vers le gris moyen : sur un mur, 242 devenait 205,
+    // et la chaux crème virait au béton (murs mesurés à 154 de luminance moyenne, p05 124
+    // — aucun ancrage sombre dans l'image). 0,88 garde le badigeon et sa couleur.
+    grade: `saturate(1.04) brightness(1.02) contrast(0.94) ${extraGrade}`.trim(),
     // miroir : sur 3,4 m de tuile, une répétition simple aligne les taloches en colonnes
     mirror: true,
   }, '#ece5d8');
@@ -214,7 +223,10 @@ function floorTextures(aniso: number, coarse: boolean): { map: THREE.Texture; ro
     maxSize: coarse ? 1024 : 2048,
     // grade : -45 % de saturation, +6 % de luminosité. Sans lui, le sol virait à
     // l'orange boueux dès qu'il recevait le soleil de la verrière.
-    grade: 'saturate(0.45) brightness(1.05) contrast(1.02)',
+    grade: 'saturate(0.3) brightness(1.06) contrast(1.0)',
+    // Miroir conservé : sans lui, la jointure de tuile se lit comme une bande sombre en
+    // travers du parquet (l'asset ne boucle pas parfaitement). La tuile est passée de
+    // 1,4 × 2,4 à 2,1 × 3,6 m, donc les paires inversées s'éloignent de 50 %.
     mirror: true,
   }, '#8a6c46');
 
@@ -246,9 +258,6 @@ function floorTextures(aniso: number, coarse: boolean): { map: THREE.Texture; ro
       }
     }
   }, { aniso: Math.min(aniso, 8), repeat: [1, 1], maxSize: 1024, mirror: true }, '#b8b8b8', false);
-  // Bornes physiques de la tuile (m), partagées avec la géométrie du sol.
-  FLOOR_TILE[0] = 1.4;
-  FLOOR_TILE[1] = 2.4;
   return { map, roughnessMap: rough };
 }
 
@@ -261,42 +270,47 @@ function floorTextures(aniso: number, coarse: boolean): { map: THREE.Texture; ro
  * mouvement et ne concurrence pas les œuvres.
  */
 function plaqueTexture(text: string): THREE.CanvasTexture {
-  const w = 1024;
-  const h = 192;
+  // 2048 × 384 et non 1024 × 192 : le nom de salle est lu à 8-12 m, et à 1024 px de large
+  // il ne restait que 35 px d'écran — le texte devenait un gris sale.
+  const w = 2048;
+  const h = 384;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
   g.clearRect(0, 0, w, h);
-  g.fillStyle = 'rgba(46,44,40,0.82)';
+  g.fillStyle = 'rgba(38,36,33,0.95)';
   g.textAlign = 'left';
   g.textBaseline = 'alphabetic';
   // numéro de salle au-dessus, nom en dessous
-  g.font = '500 34px Inter, system-ui, sans-serif';
-  g.letterSpacing = '12px';
-  g.fillText('SALLE', 6, 48);
-  g.font = 'italic 400 84px Georgia, serif';
+  g.font = '500 68px Inter, system-ui, sans-serif';
+  g.letterSpacing = '24px';
+  g.fillText('SALLE', 12, 96);
+  g.font = 'italic 400 168px Georgia, serif';
   g.letterSpacing = '0px';
-  g.fillText(text, 4, 146, w - 16);
+  g.fillText(text, 8, 292, w - 32);
   g.fillStyle = 'rgba(46,44,40,0.3)';
-  g.fillRect(6, 164, 150, 2);
+  g.fillRect(12, 328, 300, 4);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   return t;
 }
 
 /** Mur du fond : nom de l'artiste + sous-titre, comme un texte de salle. */
 function wallSignTexture(name: string, tagline: string): THREE.CanvasTexture {
-  const w = 1024;
-  const h = 512;
+  const w = 2048;
+  const h = 1024;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
   g.clearRect(0, 0, w, h);
+  // Le dessin est écrit pour un canvas de 1024 × 512 : on le met à l'échelle 2× pour le
+  // rendre net sur 2048 × 1024 (le mur du nom se lit à 6 m, face à l'entrée).
+  g.scale(w / 1024, h / 512);
 
   const spaced = (text: string, y: number, font: string, color: string, tracking: number): void => {
     g.font = font;
@@ -311,59 +325,18 @@ function wallSignTexture(name: string, tagline: string): THREE.CanvasTexture {
     });
   };
 
-  spaced(name.toUpperCase(), 190, '500 74px Georgia, serif', 'rgba(58,52,44,0.92)', 16);
+  spaced(name.toUpperCase(), 190, '500 74px Georgia, serif', 'rgba(48,43,37,0.96)', 16);
   g.fillStyle = 'rgba(58,52,44,0.35)';
   g.fillRect(w / 2 - 150, 252, 300, 2);
-  spaced(tagline.toUpperCase(), 304, '400 30px Georgia, serif', 'rgba(90,82,70,0.8)', 10);
+  spaced(tagline.toUpperCase(), 304, '400 30px Georgia, serif', 'rgba(74,67,57,0.9)', 10);
 
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 16;
   return t;
 }
 
-/**
- * Cartouche d'entrée : le mur des toiles est nu sur les premiers mètres (la première
- * œuvre est à 4 m de l'entrée). Un texte de salle — comme à l'entrée de toute expo —
- * donne une échelle, une intention et une raison à ce vide.
- */
-function entryTextTexture(artist: string, tagline: string, rooms: string[]): THREE.CanvasTexture {
-  const w = 1024;
-  const h = 512;
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const g = c.getContext('2d');
-  if (!g) throw new Error('Contexte 2D indisponible');
-  g.clearRect(0, 0, w, h);
-  const spaced = (text: string, y: number, font: string, color: string, tracking: number): void => {
-    g.font = font;
-    g.fillStyle = color;
-    g.textBaseline = 'middle';
-    const widths = [...text].map((ch) => g.measureText(ch).width);
-    const total = widths.reduce((a, b) => a + b, 0) + tracking * Math.max(0, text.length - 1);
-    let x = (w - total) / 2;
-    [...text].forEach((ch, i) => {
-      g.fillText(ch, x, y);
-      x += widths[i] + tracking;
-    });
-  };
-  spaced(artist.toUpperCase(), 150, '500 62px Georgia, serif', 'rgba(48,44,38,0.95)', 12);
-  g.fillStyle = 'rgba(60,54,46,0.30)';
-  g.fillRect(w / 2 - 120, 202, 240, 2);
-  spaced(tagline.toUpperCase(), 250, '400 26px Georgia, serif', 'rgba(84,76,64,0.9)', 8);
-  g.font = '400 26px Georgia, serif';
-  g.fillStyle = 'rgba(74,68,58,0.75)';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  const list = rooms.join('   ·   ');
-  g.fillText(list, w / 2, 330, w - 90);
-  spaced('GALERIE VIRTUELLE', 408, '400 20px Inter, system-ui, sans-serif', 'rgba(110,102,90,0.7)', 8);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
-}
+/* `entryTextTexture` a été retirée avec le cartouche qu'elle dessinait (voir plus bas). */
 
 /** Profil de moulure extrudé (plinthe). */
 function moldingGeometry(profile: [number, number][], len: number, footGradient = false): THREE.ExtrudeGeometry {
@@ -496,7 +469,7 @@ export function createScene(
   // teinte chaude à 0,75 de luminance ressortait à +11 de rouge). Neutral tient la
   // chroma jusque dans les hautes lumières et ne casse un blanc qu'au-delà de 1,0.
   renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 0.94;
+  renderer.toneMappingExposure = 1.02;
   renderer.shadowMap.enabled = opts.shadows;
   // PCFShadowMap utilise `shadow.radius` (Vogel disk + hardware PCF) : c'est le seul
   // filtre de three qui permette une pénombre réglable. PCFSoft a un noyau fixe, d'où
@@ -513,14 +486,13 @@ export function createScene(
   // d'air très légère, calée sur la plus grande diagonale — elle ne sert qu'à reculer le
   // fond d'une salle vue de l'autre, pas à noyer le lieu.
   const span = Math.max(B.x1 - B.x0, B.z1 - B.z0);
-  const cz = 0;
   scene.background = new THREE.Color(0xd9d0bf);
   scene.fog = new THREE.FogExp2(0xdcd6ca, 0.3 / Math.max(24, span));
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = buildEnvironmentScene();
   scene.environment = pmrem.fromScene(envScene, 0.25).texture;
-  scene.environmentIntensity = 0.58;
+  scene.environmentIntensity = 0.34;
   envScene.traverse((o) => {
     const m = o as THREE.Mesh;
     m.geometry?.dispose();
@@ -558,16 +530,18 @@ export function createScene(
     sun.shadow.camera.layers.enable(ROOF_LAYER);
   }
 
+  let skyFill: THREE.RectAreaLight | null = null;
   if (SKY_FILL.enabled && !opts.coarse) {
     RectAreaLightUniformsLib.init();
-    const sky = new THREE.RectAreaLight(SKY_FILL.color, SKY_FILL.intensity, SKY_FILL.width, SKY_FILL.height);
-    sky.position.set(0, SKY_FILL.y, cz);
-    sky.rotation.x = Math.PI / 2;
-    sky.layers.set(0);
-    scene.add(sky);
+    skyFill = new THREE.RectAreaLight(SKY_FILL.color, 0, 1, 1);
+    // à plat sous la dalle, éclairant vers le bas ; updateSkyFill() la déplace ensuite.
+    skyFill.rotation.x = -Math.PI / 2;
+    skyFill.layers.set(0);
+    skyFill.name = 'ciel-verriere';
+    scene.add(skyFill);
   }
 
-  const spots = new TableSpots(scene, { count: opts.coarse ? 3 : 6, shadows: opts.shadows });
+  const spots = new TableSpots(scene, { count: opts.coarse ? 3 : 12, shadows: opts.shadows });
   const spotPool = spots.pool;
 
   // ---- matériaux ----
@@ -583,8 +557,12 @@ export function createScene(
   );
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
+    // Un blanc chaud de 1 %, pas plus : à 0xfff4e6 la chaux virait au beige kaki sur
+    // toute la surface des murs (le lieu est déjà chaud par sa texture et son IBL).
+    color: 0xfffdf8,
     bumpMap: plasterTex,
-    bumpScale: 0.0018,
+    // 3,5 mm : à 1,8 mm les taloches ne lisaient plus du tout à 2 m.
+    bumpScale: 0.0035,
     roughness: 0.94,
     envMapIntensity: 0.2,
     vertexColors: true,
@@ -599,15 +577,17 @@ export function createScene(
     // Le parquet reste **plus foncé que les murs** d'environ un tiers : c'est ce
     // rapport-là qui fait lire une pièce plutôt qu'un studio blanc. 0xbfb5a3 laisse
     // l'asset lisible (lames, nœuds) tout en le ramenant dans le camaïeu du hall.
-    color: 0xb4a894,
+    color: 0xc2b49f,
     // Vernis très discret (0,04) : à 20° d'incidence, un clearcoat même faible prend
     // toute la place via Fresnel et le sol devient un miroir brun lisse — les lames et
     // le fil de l'asset disparaissent purement et simplement. Le parquet est donc
     // mat (0,68) et ne réfléchit presque pas l'environnement.
-    roughness: 0.68,
-    clearcoat: 0.04,
-    clearcoatRoughness: 0.62,
-    envMapIntensity: 0.22,
+    // 0,50 + un clearcoat réel : mesuré à 45 % de saturation et sans aucune réflexion,
+    // le parquet lisait « orange plat ». Il reste mat, mais il accroche la verrière.
+    roughness: 0.5,
+    clearcoat: 0.28,
+    clearcoatRoughness: 0.3,
+    envMapIntensity: 0.55,
   });
   const ceilMat = new THREE.MeshStandardMaterial({
     // Même enduit que les murs (l'asset `ceiling` dédié montre des stries qui lisent
@@ -630,7 +610,7 @@ export function createScene(
     emissive: 0xfffaf2,
     // mobile : pas de RectAreaLight de ciel ni de GTAO, donc moins de rebond perçu — on
     // compense l'émission de la dalle pour que le plafond ne vire pas au kraft.
-    emissiveIntensity: opts.coarse ? 0.24 : 0.13,
+    emissiveIntensity: opts.coarse ? 0.12 : 0.05,
   });
   // Bois peint de la charpente et des portiques : le relief et l'ombre font le travail.
   const paintedTex = paintedWoodTexture(aniso, 1, texMax);
@@ -856,26 +836,17 @@ export function createScene(
     sign.name = 'texte-salle';
     scene.add(sign);
 
-    // Cartouche : l'artiste, puis les trois salles — le plan se lit aussi sur le mur.
-    const panel = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.4, 0.7),
-      new THREE.MeshStandardMaterial({
-        map: entryTextTexture(
-          opts.artist,
-          opts.tagline ?? 'Huile & aquarelle',
-          layout.rooms.filter((r) => !r.lobby).map((r) => r.name),
-        ),
-        transparent: true,
-        roughness: 0.95,
-        envMapIntensity: 0.1,
-        depthWrite: false,
-      }),
-    );
-    panel.position.set(-2.85, 1.62, SAS_HALF - WALL_T / 2 - 0.004);
-    panel.rotation.y = Math.PI;
-    panel.name = 'cartouche-entree';
-    scene.add(panel);
   }
+
+  // ---- Cartouche d'entrée : SUPPRIMÉ ----
+  //
+  // Il y avait ici un texte de 2,1 × 1,05 m au-dessus de la baie nord (nom, sous-titre,
+  // liste des salles, « salle d'entrée »). Quatre raisons de le retirer : il répétait le
+  // mot-symbole déjà présent en haut à gauche de l'écran ; lu à 12 m, son canvas de
+  // 1024 px ne donnait que des lignes grises ; posé en aplat translucide, il flottait
+  // devant le mur au lieu d'être peint dessus ; et un cartouche d'exposition se pose à
+  // hauteur de regard, pas à 3,44 m. Le mur du nom, face à l'entrée, porte déjà
+  // l'identité — une seule fois, à sa taille réelle.
 
   // ---- Plaque de salle, peinte à côté de chaque baie, côté sas ----
   //
@@ -910,5 +881,5 @@ export function createScene(
     scene.add(plaque);
   });
 
-  return { renderer, scene, camera, sun, spotPool, spots, plants };
+  return { renderer, scene, camera, sun, spotPool, skyFill, spots, plants };
 }

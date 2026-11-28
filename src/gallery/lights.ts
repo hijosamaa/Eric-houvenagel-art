@@ -34,20 +34,26 @@ export const SPOT_SHADOW_LAYER = 2;
 
 /** Hémisphérique « jour » : ciel bleuté doux, sol chaud — lumière naturelle ambiante. */
 export const HEMI = {
-  sky: 0xdae7f5,
+  sky: 0xe4e6e2,
   // Rebond du parquet vers les sous-faces : c'est la seule lumière qui atteint une dalle
   // (elle regarde le sol). Sans ce terme, le plafond tombait à 80 % de la valeur des murs
   // ET franchement chaud — il lisait comme du contreplaqué sur un tiers de l'image.
   ground: 0xf1eee6,
-  intensity: 0.42,
+  /**
+   * 0,24 (et 0,3 sur mobile, privé de RectAreaLight). À 0,34 l'ambiante portait le sol
+   * du sas à 200/255 même à l'ombre : la tache de soleil sous la verrière ne se lisait
+   * plus, et les pièces n'avaient aucun contraste (p05 = 127, aucune valeur sombre).
+   */
+  intensity: 0.2,
   /** Repli mobile (pas de RectAreaLight) : un peu plus haut pour compenser. */
-  coarseIntensity: 0.46,
+  coarseIntensity: 0.24,
 } as const;
 
 /** Soleil « plein jour » : blanc chaud, assez puissant pour la trame de la verrière. */
 export const SUN = {
   color: 0xfff0da,
-  intensity: 2.0,
+  /** 3,2 : la trame de la verrière doit se dessiner au sol, pas seulement l'éclairer. */
+  intensity: 3.2,
   /**
    * Élévation ≈ 50° : la tache de soleil s'allonge et vient mourir au pied du mur des
    * toiles sans l'atteindre (mise en lumière rasante, et conservation : une aquarelle
@@ -56,16 +62,22 @@ export const SUN = {
    */
   position: { x: 3.1, y: 12, z: -8.6 },
   shadow: {
-    /** 3072 → 0,52 cm/texel sur une fenêtre ±8 × ±11 m. */
-    mapSize: 3072,
+    /**
+     * 4096 sur une fenêtre ±15 × ±16 m (espace lumière) → 0,73 cm/texel.
+     *
+     * La fenêtre précédente (±9 × ±21 m) datait du couloir : elle ne couvrait que 18 m en
+     * travers, donc les salles Est et Ouest (bâti de 26 × 28 m) sortaient du champ et
+     * perdaient leurs ombres — la dalle cessait de projeter la trame de la verrière au sol.
+     */
+    mapSize: 4096,
     mapSizeCoarse: 2048,
     /**
      * Demi-fenêtre en **espace lumière** : avec un soleil oblique, l'axe « up » de la
      * caméra d'ombre n'est plus l'axe Z monde, donc une fenêtre de 11 m ne couvrait que
      * ~14 m de sol — les ombres s'arrêtaient net au milieu du hall.
      */
-    halfX: 9,
-    halfZ: 21,
+    halfX: 15,
+    halfZ: 16,
     /** Quantification de la fenêtre : supprime le shadow swimming (P1-2). */
     quantum: 0.5,
     bias: -0.0002,
@@ -75,20 +87,81 @@ export const SUN = {
      * radius 14 ≈ 7 cm de pénombre, ce qui est l'ordre de grandeur réel sous une verrière
      * de 5 m de large (la source a un diamètre angulaire énorme).
      */
-    radius: 26,
+    radius: 8,
   },
 } as const;
 
 /** Ciel diffus de la trémie (substitut de ciel, sans ombre ni CSM). Desktop uniquement. */
 export const SKY_FILL = {
-  color: 0xeef5fd,
-  intensity: 0.55,
-  width: 5.4,
-  height: 26,
-  y: 3.24,
+  color: 0xf4f1e6,
+  /**
+   * Une seule `RectAreaLight` suit la pièce où se trouve la caméra. L'ancienne version en
+   * posait une, fixe, de 5,4 × 26 m au centre du hall : depuis que le plan est un sas de
+   * 12 × 12 entouré de trois salles, elle éclairait le sas **entier** sans aucune occlusion
+   * (RectAreaLight ne projette pas d'ombre) — le sas devenait un studio blanc à 154 de
+   * luminance moyenne et le soleil n'y dessinait plus rien.
+   */
+  intensity: 0.34,
+  /** Fondu lors du passage d'une pièce à l'autre (s). */
+  fade: 0.45,
   /** `false` = pas de RectAreaLight du tout (mobile, ou si la mesure impose de couper). */
   enabled: true,
 } as const;
+
+/**
+ * Place le ciel diffus sous la verrière de la pièce où se trouve la caméra.
+ *
+ * `RectAreaLight` n'émet que dans son demi-espace : on la couche donc à plat sous la
+ * dalle, orientée vers le bas, à la taille exacte de la trémie. Elle éclaire ainsi comme
+ * le ciel qu'elle remplace — un rectangle de lumière qui tombe du plafond, et non un
+ * projecteur de studio posé au milieu du volume.
+ *
+ * Renvoie la pièce retenue (utile aux tests) ; `null` si la caméra est hors du bâti.
+ */
+export function updateSkyFill(
+  light: THREE.RectAreaLight,
+  rooms: { id: string; rect: { x0: number; z0: number; x1: number; z1: number }; height: number; shell: { skyW: number; skyL: number }; inZ: number }[],
+  cam: { x: number; z: number },
+  dt: number,
+): string | null {
+  // 1. pièce qui contient la caméra, sinon la plus proche (on traverse une baie : la
+  //    caméra est brièvement « dans le mur », il ne faut pas que le ciel s'éteigne).
+  let room: (typeof rooms)[number] | null = null;
+  let best = Infinity;
+  for (const r of rooms) {
+    const inside = cam.x > r.rect.x0 && cam.x < r.rect.x1 && cam.z > r.rect.z0 && cam.z < r.rect.z1;
+    const dx = Math.max(r.rect.x0 - cam.x, 0, cam.x - r.rect.x1);
+    const dz = Math.max(r.rect.z0 - cam.z, 0, cam.z - r.rect.z1);
+    const d = inside ? -1 : Math.hypot(dx, dz);
+    if (d < best) {
+      best = d;
+      room = r;
+    }
+  }
+  if (!room) return null;
+
+  // 2. taille de la trémie dans le repère du monde (la verrière court dans l'axe de la
+  //    pièce : largeur = skyW dans l'axe transversal).
+  const alongZ = room.inZ !== 0;
+  const w = alongZ ? room.shell.skyW : room.shell.skyL;
+  const h = alongZ ? room.shell.skyL : room.shell.skyW;
+  if (light.userData.roomId !== room.id) {
+    light.userData.roomId = room.id;
+    light.intensity = 0;
+    light.width = w;
+    light.height = h;
+    light.position.set(
+      (room.rect.x0 + room.rect.x1) / 2,
+      room.height - 0.14,
+      (room.rect.z0 + room.rect.z1) / 2,
+    );
+  }
+  // 3. fondu : un saut d'intensité se lit comme un claquement d'interrupteur.
+  const target = SKY_FILL.intensity;
+  const k = Math.min(1, dt / Math.max(0.001, SKY_FILL.fade));
+  light.intensity += (target - light.intensity) * k;
+  return room.id;
+}
 
 /** Spots « tableau » : un par œuvre, dans le luminaire (P0-2 / P1-5). */
 export const TABLE_SPOT = {
@@ -98,7 +171,12 @@ export const TABLE_SPOT = {
    * L'ancienne valeur (1,8) avec un appareil à 9 cm du mur brûlait le mur AU-DESSUS du
    * cadre (la tache blanche visible sur les captures) au lieu de laver la toile.
    */
-  intensity: 1.15,
+  /**
+   * 4,0 cd. Mesure d'attribution (audit rendu §1) : à 1,15 les six spots n'ajoutaient que
+   * +8 niveaux à la toile visée, soit rien — une œuvre de papier ressortait 31 niveaux
+   * PLUS SOMBRE que le mur qui la porte. À 4,0 la toile est le point le plus clair du mur.
+   */
+  intensity: 4.0,
   distance: 6,
   /**
    * Cône calculé pour couvrir la toile : demi-angle ≈ atan(0,9 / 1,05) ≈ 0,71 rad.
@@ -118,9 +196,9 @@ export const TABLE_SPOT = {
    * brille moins (jamais à 0) → la lumière glisse d'un tableau à l'autre au lieu
    * de sauter (le « tout ou rien » à 1 spot mobile était illisible).
    */
-  distFadeMin: 0.45,
+  distFadeMin: 0.7,
   distFadeRange: 7,
-  shadowMapSize: 512,
+  shadowMapSize: 1024,
   shadowNear: 0.05,
 } as const;
 

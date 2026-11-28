@@ -101,6 +101,15 @@ export const POST_TUNING = {
     thresholdLow: 1.2,
   },
   grain: { amount: 0.014, hz: 24 },
+  /**
+   * Courbe finale (S symétrique, appliquée en sRGB après la sortie tonale).
+   *
+   * Le lieu est meublé de surfaces claires — chaux ivoire, chêne blond, dalle blanc cassé.
+   * Après tone mapping, toutes les valeurs tombaient entre 100 et 190 : une image sans
+   * blanc ni noir, qui « flotte ». Cette S de 0,26 rend les ombres (100 → 88) et pousse
+   * les hautes lumières (190 → 205) sans toucher aux gris moyens ni à la chroma.
+   */
+  grade: { contrast: 0.26, lift: -0.008 },
   smaa: true,
 } as const;
 
@@ -142,6 +151,8 @@ const GrainShader = {
     tDiffuse: { value: null as THREE.Texture | null },
     uAmount: { value: POST_TUNING.grain.amount },
     uSeed: { value: 0 },
+    uContrast: { value: POST_TUNING.grade.contrast },
+    uLift: { value: POST_TUNING.grade.lift },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -154,6 +165,8 @@ const GrainShader = {
     uniform sampler2D tDiffuse;
     uniform float uAmount;
     uniform float uSeed;
+    uniform float uContrast;
+    uniform float uLift;
     varying vec2 vUv;
 
     // Hash de Dave Hoskins : distribution non corrélée. L'ancienne version
@@ -167,6 +180,11 @@ const GrainShader = {
 
     void main() {
       vec4 c = texture2D( tDiffuse, vUv );
+      // Courbe finale : S symétrique (smoothstep) + léger point noir. Appliquée AVANT le
+      // grain pour que le bruit ne soit pas écrasé dans les ombres.
+      vec3 g = clamp( c.rgb, 0.0, 1.0 );
+      g = mix( g, g * g * ( 3.0 - 2.0 * g ), uContrast ) + uLift * ( 1.0 - g );
+      c.rgb = clamp( g, 0.0, 1.0 );
       float r = hash12( gl_FragCoord.xy + vec2( uSeed * 13.7, uSeed * 7.3 ) );
       // Grain monochrome symétrique, 1 px. Pondéré par la luminance : quasi nul dans
       // les blancs (un grain marqué sur un mur clair se lit comme du bruit numérique).

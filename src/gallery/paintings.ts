@@ -6,7 +6,7 @@ import type { Work } from '../types';
 
 import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
-import { buildFrame, type FrameBuild } from './frames';
+import { WALL_FACE_Z, buildFrame, type FrameBuild } from './frames';
 
 // Patch unique (niveau module) : raycast accéléré par BVH quand geometry.boundsTree
 // est présent, sinon retombe sur le raycast three d'origine (comportement identique).
@@ -109,6 +109,37 @@ function buildLabelAtlas(works: Work[]): THREE.CanvasTexture {
   return t;
 }
 
+/**
+ * Halo d'ombre de contact **sur le mur**, autour du cadre.
+ *
+ * Un cadre de 7 cm de saillie projette sur le parement une ombre qui meurt en 4 à 8 cm.
+ * Elle manquait totalement : la mesure donnait 150 ± 2,3 sur le mur à 10 cm sous un
+ * cadre, c'est-à-dire **exactement la valeur du mur nu**. C'est ce détail qui fait la
+ * différence entre une image de synthèse et une photo d'accrochage.
+ *
+ * Un seul matériau et un seul dégradé sont partagés : 30 quads, 1 texture, 1 draw call
+ * par toile (les quads sont fusionnés avec le groupe de l'œuvre, donc rien de plus).
+ */
+function wallHaloTexture(): THREE.CanvasTexture {
+  const s = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = s;
+  const g = c.getContext('2d');
+  if (!g) throw new Error('Contexte 2D indisponible');
+  // cœur plein (caché derrière le cadre) puis décroissance : l'ombre ne se voit que dans
+  // la couronne, entre le bord du cadre et 8 cm plus loin.
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.62, 'rgba(255,255,255,0.62)');
+  grad.addColorStop(0.8, 'rgba(255,255,255,0.34)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, s, s);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
+
 function labelGeometry(index: number, w: number, h: number): THREE.PlaneGeometry {
   const geo = new THREE.PlaneGeometry(w, h);
   const col = index % ATLAS_COLS;
@@ -140,6 +171,14 @@ export function buildPaintings(
 ): PaintingEntry[] {
   const atlas = buildLabelAtlas(layout.placed.map((p) => p.work));
   const labelMat = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.94, envMapIntensity: 0.12 });
+  const haloMat = new THREE.MeshBasicMaterial({
+    map: wallHaloTexture(),
+    color: 0x2a2118,
+    transparent: true,
+    opacity: 0.5,
+    depthWrite: false,
+    fog: true,
+  });
   const entries: PaintingEntry[] = [];
 
   layout.placed.forEach((p, i) => {
@@ -173,6 +212,15 @@ export function buildPaintings(
     imageMesh.name = 'toile';
     group.add(imageMesh);
 
+    // Halo d'ombre de contact : 1 mm devant le parement, débord de 9 cm.
+    const halo = new THREE.Mesh(
+      new THREE.PlaneGeometry(frame.halfWidth * 2 + 0.18, frame.halfHeight * 2 + 0.18),
+      haloMat,
+    );
+    halo.position.z = WALL_FACE_Z + 0.002;
+    halo.name = 'halo-cadre';
+    group.add(halo);
+
     // Cartel musée : sur une petite plaque métal décollée du mur (14 mm), à ~24 cm du
     // cadre, centrée vers ~1,15 m — plus « collé » au mur ni au cadre. L'offset est
     // clampé pour ne jamais toucher le cadre de l'œuvre suivante (pano w=2,4).
@@ -186,12 +234,12 @@ export function buildPaintings(
       metalness: 0.1,
       envMapIntensity: 0.3,
     });
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.118, 0.009), plateMat);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.148, 0.009), plateMat);
     plate.position.set(labelOff, -p.h / 2 + 0.42, 0.05);
     plate.receiveShadow = shadows;
     plate.name = 'cartel-plaque';
     group.add(plate);
-    const label = new THREE.Mesh(labelGeometry(i, 0.18, 0.107), labelMat);
+    const label = new THREE.Mesh(labelGeometry(i, 0.225, 0.137), labelMat);
     label.position.set(labelOff, -p.h / 2 + 0.42, 0.0548);
     label.name = 'cartel';
     group.add(label);

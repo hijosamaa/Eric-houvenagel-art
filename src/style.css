@@ -278,6 +278,11 @@ body.cursor-view #scene:active {
 .room-chip .room-num {
   display: none;
 }
+.room-chip .room-num svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.5;
+}
 .room-chip:hover {
   border-color: var(--accent);
   color: var(--accent);
@@ -298,12 +303,20 @@ body.cursor-view #scene:active {
   bottom: 0;
   z-index: 10;
   padding: 0 var(--gutter) var(--s5);
+  /* Le cartel est posé sur une scène claire (parquet blond, murs ivoire) : un dégradé trop
+     transparent laissait le titre et les flèches flotter sur les lames. Le voile monte donc
+     vite à 0,92 et se ferme sur du papier plein ; le flou d'arrière-plan absorbe le reste
+     pour que la scène « passe derrière » le cartel au lieu de le traverser. */
   background: linear-gradient(
     to bottom,
     rgba(250, 247, 242, 0) 0,
-    rgba(250, 247, 242, 0.62) 34%,
-    rgba(250, 247, 242, 0.9) 100%
+    rgba(250, 247, 242, 0.42) 34%,
+    rgba(250, 247, 242, 0.78) 66%,
+    rgba(250, 247, 242, 0.94) 100%
   );
+  /* Pas de `backdrop-filter` ici : il s'applique à la boîte entière et dessinerait une
+     arête de flou horizontale nette juste au-dessus du rail. Le dégradé suffit, et il
+     laisse la scène « respirer » sur les 20 premiers pixels. */
 }
 
 #cartel-progress {
@@ -320,7 +333,10 @@ body.cursor-view #scene:active {
 
 #cartel-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 340px) 1fr auto;
+  /* La colonne du plan était `1fr` : à 1440 px, le plan de 27 × 29 m se dessinait dans
+     628 × 128 px, donc 194 px de large — 69 % de la cellule vide. Il a maintenant sa
+     largeur, et c'est la légende qui prend le reste. */
+  grid-template-columns: minmax(0, 1fr) 210px auto;
   align-items: end;
   column-gap: var(--s7);
 }
@@ -370,8 +386,16 @@ body.cursor-view #scene:active {
 #minimap {
   grid-column: 2;
   position: relative;
-  height: 96px;
+  height: 128px;
+  width: 100%;
+  max-width: 210px;
+  justify-self: center;
   align-self: end;
+  padding: 5px;
+  /* Pas de plaque sur desktop : le voile du cartel est déjà à 0,94 sous le plan, une
+     plaque de plus faisait un carton blanc au milieu de la barre. La lisibilité vient
+     des traits (3,4:1) et non du fond. Sur tablette et mobile, le cartel est plus court
+     et la scène passe derrière : la plaque revient (voir les paliers). */
   touch-action: manipulation;
 }
 
@@ -382,40 +406,49 @@ body.cursor-view #scene:active {
   overflow: visible;
 }
 
-/* parcours guidé : un pointillé discret, il ne doit pas concurrencer les murs */
+/* Tous les traits sont en PIXELS (`non-scaling-stroke`) : le viewBox est en mètres, donc
+   un stroke-width de 0,17 valait 0,5 px à 128 px de haut — invisible. */
 .mm-route {
   fill: none;
-  stroke: var(--line);
-  stroke-width: 0.16;
-  stroke-dasharray: 0.7 0.7;
-  opacity: 0.9;
+  stroke: var(--muted);
+  stroke-width: 1px;
+  stroke-dasharray: 3px 3px;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
 }
 
 .mm-room rect {
-  fill: transparent;
-  stroke: var(--line);
-  stroke-width: 0.17;
+  /* `--line` (#ddd5c7) sur du papier ne donne que 1,3:1 : les murs du plan
+     disparaissaient. 1,4 px d'un gris chaud à 3,4:1 reste discret et se lit. */
+  fill: rgba(32, 36, 42, 0.035);
+  stroke: #9c9488;
+  stroke-width: 1.4px;
+  vector-effect: non-scaling-stroke;
   cursor: pointer;
   transition: fill var(--d-fast), stroke var(--d-fast);
 }
 .mm-room rect.lobby {
-  stroke-dasharray: 0.6 0.45;
-  opacity: 0.85;
+  stroke-dasharray: 4px 3px;
+  opacity: 0.9;
 }
 .mm-room rect:hover {
   stroke: var(--accent);
 }
 .mm-room rect.active {
   fill: var(--accent);
-  fill-opacity: 0.12;
+  fill-opacity: 0.14;
   stroke: var(--accent);
+  stroke-width: 1.8px;
 }
 
-/* numéro de salle : la légende donne le nom complet, le plan donne la place */
+/* numéro de salle : la légende donne le nom complet, le plan donne la place.
+   `stroke: none` est indispensable : la règle globale `svg { stroke-width: 1.25 }` faisait
+   un contour de 5 px autour de chaque chiffre, qui se lisait comme une tache. */
 .mm-num {
   fill: var(--muted);
-  font-family: var(--f-ui);
-  font-size: 1.9px;
+  stroke: none;
+  font-family: var(--sans);
+  font-size: 2.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-anchor: middle;
@@ -428,31 +461,42 @@ body.cursor-view #scene:active {
 
 /* une toile : un trait sur le mur qui la porte */
 .mm-stop {
-  stroke: var(--muted);
-  stroke-width: 0.26;
+  stroke: var(--ink);
+  stroke-width: 2.5px;
+  vector-effect: non-scaling-stroke;
   stroke-linecap: round;
-  opacity: 0.55;
+  opacity: 0.6;
   cursor: pointer;
-  transition: stroke var(--d-fast), opacity var(--d-fast), stroke-width var(--d-fast);
+  transition: stroke var(--d-fast), opacity var(--d-fast);
 }
 .mm-stop:hover,
 .mm-stop.active {
   stroke: var(--accent);
   opacity: 1;
-  stroke-width: 0.34;
+}
+/* zone de clic : le trait est fin, la cible fait 14 px (le pouce ne vise pas au pixel). */
+.mm-hit {
+  stroke: transparent;
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  cursor: pointer;
 }
 
 /* curseur caméra : un point et un cône de vision */
 .mm-cam circle {
   fill: var(--ink);
+  stroke: none;
 }
 .mm-cam .mm-cone {
   fill: var(--accent);
-  fill-opacity: 0.28;
+  fill-opacity: 0.3;
+  stroke: none;
 }
 
 #nav {
   grid-column: 3;
+  justify-self: end;
   position: relative;
   z-index: 3;
   display: flex;
@@ -468,7 +512,8 @@ body.cursor-view #scene:active {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: var(--r-round);
-  background: transparent;
+  /* Papier translucide : une flèche en trait seul disparaissait sur un sol clair. */
+  background: rgba(255, 253, 249, 0.72);
   color: var(--ink);
   cursor: pointer;
   transition: border-color var(--d-fast), color var(--d-fast), background var(--d-fast);
@@ -480,7 +525,7 @@ body.cursor-view #scene:active {
 .nav-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
-  background: rgba(51, 86, 110, 0.04);
+  background: rgba(255, 253, 249, 0.96);
 }
 
 .nav-link {
@@ -501,6 +546,20 @@ body.cursor-view #scene:active {
 .nav-link:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* La fiche (420 px) recouvrait les pastilles de salle : un clic sur « 4 » tombait sur
+   `#panel-bar`. On décale la barre de la largeur du panneau tant qu'il est ouvert. */
+#app.panel-open #rooms-bar {
+  right: calc(min(420px, 100vw) + var(--gutter));
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* base vide : plus de commandes */
+#rooms-bar.hidden,
+#cartel.hidden {
+  display: none;
 }
 
 /* entrée en cascade, une seule fois */
@@ -533,11 +592,20 @@ body.cursor-view #scene:active {
   background: var(--paper);
   box-shadow: -18px 0 40px rgba(32, 36, 42, 0.06);
   transform: translateX(101%);
-  transition: transform var(--d-panel) var(--e-out);
+  /* `visibility` (et non seulement `translateX`) : fiche fermée, les six contrôles
+     restaient tabulables à 1468 px hors écran. Le délai laisse la sortie se jouer. */
+  visibility: hidden;
+  transition:
+    transform var(--d-panel) var(--e-out),
+    visibility 0s linear var(--d-panel);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 #panel.open {
+  visibility: visible;
+  transition:
+    transform var(--d-panel) var(--e-out),
+    visibility 0s;
   transform: none;
 }
 
@@ -1102,6 +1170,48 @@ body.cursor-view #scene:active {
 /* ----------------------------------------------------------------------------
    Mobile : un seul bloc en bas, cibles de 44 px
    -------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------------
+   Palier intermédiaire (≤ 1100 px) : le cartel passe sur deux lignes.
+   Entre 721 et 880 px, la colonne du plan tombait à 0–8 px (mesuré) : il n'y avait
+   plus de mode « plan du bâtiment » sur une tablette en portrait ni sur un petit
+   portable. La légende et les commandes partagent la première ligne, le plan prend
+   la seconde sur toute la largeur.
+   -------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  #rooms-bar {
+    top: 40px;
+  }
+  #cartel-grid {
+    /* Deux colonnes : la légende et les flèches à gauche, le plan à droite. En pleine
+       largeur, le plan se dessinait dans 730 × 92 px — un timbre au milieu d'une plaque
+       vide. Ici la colonne fait la taille du plan. */
+    grid-template-columns: minmax(0, 1fr) 132px;
+    grid-template-areas:
+      'cap rail'
+      'nav rail';
+    column-gap: var(--s5);
+    row-gap: var(--s3);
+  }
+  #caption {
+    grid-area: cap;
+  }
+  #minimap {
+    grid-area: rail;
+    max-width: none;
+    width: 132px;
+    height: 104px;
+    justify-self: end;
+    padding: 4px;
+    background: rgba(255, 253, 249, 0.8);
+    border: 1px solid var(--line-soft);
+  }
+  #nav {
+    grid-area: nav;
+    justify-self: start;
+    padding-bottom: 0;
+  }
+}
+
 @media (max-width: 720px) {
   :root {
     --gutter: var(--s4);
@@ -1126,9 +1236,9 @@ body.cursor-view #scene:active {
     gap: 6px;
   }
   .room-chip {
-    height: 28px;
-    min-width: 30px;
-    padding: 0 8px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0 10px;
     justify-content: center;
   }
   #toast {
@@ -1147,21 +1257,19 @@ body.cursor-view #scene:active {
   }
 
   #cartel {
-    padding-bottom: var(--s4);
+    /* Le bloc du bas occupe un quart de l'écran : il doit lire comme une plage de papier
+       franche, sans laisser transparaître le parquet sous le titre. */
+    padding-bottom: max(var(--s3), env(safe-area-inset-bottom));
+    background: linear-gradient(
+      to bottom,
+      rgba(250, 247, 242, 0) 0,
+      rgba(250, 247, 242, 0.9) 12%,
+      rgba(250, 247, 242, 0.985) 34%,
+      rgba(250, 247, 242, 1) 100%
+    );
   }
   #cartel-progress {
     margin-bottom: var(--s4);
-  }
-  #cartel-grid {
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      'cap nav'
-      'rail rail';
-    column-gap: var(--s3);
-    row-gap: var(--s4);
-  }
-  #caption {
-    grid-area: cap;
   }
   #cap-title {
     font-size: 20px;
@@ -1170,29 +1278,55 @@ body.cursor-view #scene:active {
     font-size: 11px;
   }
   #minimap {
-    grid-area: rail;
     margin-bottom: 0;
+    width: 104px;
+    height: 96px;
+    padding: 3px;
   }
-  #nav {
-    grid-area: nav;
-    padding-bottom: 0;
+  #cartel-grid {
+    grid-template-columns: minmax(0, 1fr) 104px;
   }
   .nav-btn {
     width: 44px;
     height: 44px;
   }
-  .nav-link {
+  #btn-free {
     display: none;
   }
-  #minimap {
-    height: 74px;
+  #btn-index {
+    margin-left: var(--s3);
   }
+  #minimap {
+    height: 96px;
+  }
+  /* le plan mobile est plus petit (96 px de haut), les chiffres doivent tenir 11 px CSS */
   .mm-num {
-    font-size: 2.4px;
+    font-size: 3.6px;
   }
 
   #panel {
     width: 100vw;
+  }
+  /* Cibles de 44 px dans la barre de la fiche : 12 × 25 px pour « › » ne se touchait pas. */
+  #panel-back,
+  #panel-nav button,
+  #panel-close {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  #panel-back {
+    min-width: 78px;
+    justify-content: flex-start;
+  }
+  #panel-bar {
+    height: 56px;
+    gap: var(--s2);
+    padding: 0 var(--s2) 0 var(--s4);
+  }
+  #panel-nav {
+    gap: var(--s3);
   }
   #panel-body {
     padding: var(--s5) var(--s4) var(--s7);

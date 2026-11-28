@@ -99,7 +99,7 @@ export interface UI {
   /** Ligne « Salle 2/5 · Marines & Bretagne » au-dessus du titre du cartel. */
   setRoomLabel(text: string): void;
   /** Barre des salles (haut droit) : construit un chip par salle. */
-  buildRooms(rooms: { name: string }[], onPick: (zoneIndex: number) => void): void;
+  buildRooms(rooms: { name: string; lobby?: boolean }[], onPick: (zoneIndex: number) => void): void;
   /** Salle active dans la barre (index −1 = aucune). */
   setActiveRoom(zoneIndex: number): void;
   setProgressBar(t: number): void;
@@ -121,6 +121,8 @@ export interface UI {
   showEnd(v: boolean): void;
   endIsOpen(): boolean;
   setLoader(ratio: number, done: boolean): void;
+  /** Base sans œuvre : message explicite, commandes retirées. */
+  setEmpty(message: string): void;
   hideIntro(): void;
   setFreeLabel(active: boolean): void;
 }
@@ -149,6 +151,8 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
   let works: PlacedWork[] = [];
   let lbId: string | null = null;
   let zoom = 1;
+  /** Élément qui avait le focus avant l'ouverture de la fiche (restitution à la fermeture). */
+  let lastFocus: HTMLElement | null = null;
 
   $('btn-prev').addEventListener('click', cb.onPrev);
   $('btn-next').addEventListener('click', cb.onNext);
@@ -270,14 +274,25 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
     buildRooms(rooms, onPick) {
       const bar = $('rooms-bar');
       bar.innerHTML = '';
+      // Numérotation : 1…3 pour les salles d'accrochage, le sas n'est pas numéroté (il
+      // affichait « 2 » quand le cartel annonçait « Salle 1/3 »).
+      let n = 0;
       rooms.forEach((r, i) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'room-chip';
-        b.setAttribute('aria-label', `Aller à la salle ${r.name}`);
+        if (r.lobby) b.classList.add('lobby');
+        b.setAttribute('aria-label', r.lobby ? "Revenir à l'entrée" : `Aller à la salle ${r.name}`);
         const num = document.createElement('span');
         num.className = 'room-num';
-        num.textContent = String(i + 1);
+        if (r.lobby) {
+          // une maison, pas un chiffre : sur mobile les noms sont masqués et le sas
+          // restait une pastille muette
+          num.innerHTML =
+            '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.4 5.6 6 1.6l4.6 4M2.6 5v5.4h6.8V5"/></svg>';
+        } else {
+          num.textContent = String(++n);
+        }
         const name = document.createElement('span');
         name.className = 'room-name';
         name.textContent = r.name;
@@ -372,10 +387,22 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
       $('cap-title').textContent = p.work.title;
       $('cap-meta').textContent = metaLine(p.work);
       panel.scrollTop = 0;
+      lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       panel.classList.add('open');
+      panel.removeAttribute('aria-hidden');
+      panel.setAttribute('aria-modal', 'true');
+      document.getElementById('app')?.classList.add('panel-open');
+      // Le focus entre dans la fiche : au clavier, elle restait un panneau fantôme qu'on
+      // tabulait sans jamais y être (les 6 contrôles étaient atteignables fiche fermée).
+      ($('panel-close') as HTMLButtonElement).focus({ preventScroll: true });
     },
     closePanel() {
       panel.classList.remove('open');
+      panel.setAttribute('aria-hidden', 'true');
+      panel.removeAttribute('aria-modal');
+      document.getElementById('app')?.classList.remove('panel-open');
+      if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+      lastFocus = null;
     },
     panelIsOpen: () => panel.classList.contains('open'),
     openLightbox(p) {
@@ -417,6 +444,19 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
         ? 'Prêt. Bonne visite.'
         : `Chargement de la galerie… ${Math.round(ratio * 100)} %`;
       ($('btn-enter') as HTMLButtonElement).disabled = !done;
+    },
+    setEmpty(message) {
+      // Base sans œuvre publiée : sans ce garde-fou, la barre restait à « Chargement de la
+      // galerie… » et le bouton « Entrer » demeurait `disabled` — un domaine mort sans un
+      // mot d'explication. On retire aussi les commandes qui ne mènent nulle part.
+      $('loader-fill').style.width = '100%';
+      $('loader-text').textContent = message;
+      const enter = $('btn-enter') as HTMLButtonElement;
+      enter.disabled = true;
+      enter.textContent = 'Galerie vide';
+      $('rooms-bar').classList.add('hidden');
+      $('cartel').classList.add('hidden');
+      $('intro').classList.add('empty');
     },
     hideIntro() {
       intro.style.opacity = '0';

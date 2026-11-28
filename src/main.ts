@@ -4,7 +4,7 @@ import type { GalleryData } from './types';
 
 import { computeLayout, zoneAt, type PlacedWork } from './gallery/layout';
 
-import { updateSunShadow } from './gallery/lights';
+import { updateSkyFill, updateSunShadow } from './gallery/lights';
 
 import { createScene } from './gallery/scene';
 
@@ -124,7 +124,7 @@ async function boot(): Promise<void> {
   // droites (cadres, cimaise) quand on se rapproche d'une œuvre.
   const pixelRatio = Math.min(window.devicePixelRatio, 2);
   const shadows = !coarse;
-  const { renderer, scene, camera, sun, spots, plants } = createScene(canvas, layout, pixelRatio, {
+  const { renderer, scene, camera, sun, skyFill, spots, plants } = createScene(canvas, layout, pixelRatio, {
     shadows,
     coarse,
     artist: data.artist,
@@ -317,6 +317,10 @@ async function boot(): Promise<void> {
       },
       onEnter: () => {
         entered = true;
+        // Le parcours démarre à l'entrée, quoi qu'il ait été scrollé avant le clic.
+        window.scrollTo(0, 0);
+        controls.scrollEnabled = true;
+        controls.scrollToT(0);
         ui.hideIntro();
         document.getElementById('app')?.classList.add('ready');
         ui.toast('Faites défiler pour avancer. Cliquez sur un tableau pour l’observer.', 8000);
@@ -349,10 +353,12 @@ async function boot(): Promise<void> {
     }))
     .filter((g) => g.works.length > 0);
   ui.buildIndex(groups, base, (p) => focusWork(p));
-  ui.buildRooms(layout.rooms.map((z) => ({ name: z.name })), (zi) => goToZone(zi));
+  ui.buildRooms(layout.rooms.map((z) => ({ name: z.name, lobby: z.lobby === true })), (zi) => goToZone(zi));
   minimap.onZonePick = (zi) => goToZone(zi);
 
   if (!fine) {
+    // La visite libre se pilote à ZQSD : sans clavier, le bouton n'ouvrirait qu'une
+    // impasse. L'index, lui, reste accessible partout (c'est le 4ᵉ mode sur mobile).
     (document.getElementById('btn-free') as HTMLButtonElement).style.display = 'none';
   }
 
@@ -446,6 +452,11 @@ async function boot(): Promise<void> {
     hoverDirty = true;
   });
 
+  // Base vide (aucune œuvre publiée, ou `data/works.json` injoignable) : on ne laisse pas
+  // l'intro tourner à vide sur un « Chargement… » éternel.
+  if (entries.length === 0 || nearEntries.length === 0) {
+    ui.setEmpty('Aucune œuvre publiée pour le moment.');
+  }
   // Chargement initial : uniquement le voisinage de l'entrée (le tick charge le reste en lazy)
   for (const e of nearEntries) {
     ensureTexture(e, base, texAniso, () => {
@@ -465,7 +476,11 @@ async function boot(): Promise<void> {
     renderer.setSize(w, h, false);
     const aspect = w / h;
     camera.aspect = aspect;
-    camera.fov = aspect < 1 ? Math.min(70, 56 / Math.sqrt(aspect)) : 52;
+    // Portrait : compte tenu de la distance de vue (2,9 m), il faut ~78° de champ vertical
+    // pour que la plus grande toile (1,5 m + cadre) tienne avec de l'air autour : à 70° on
+    // ne voyait que 1,88 m de mur, la toile occupait 88 % de la largeur et se faisait
+    // couper par le bord. Au-delà de 78° la perspective diverge trop.
+    camera.fov = aspect < 1 ? Math.min(78, 56 / Math.sqrt(aspect)) : 52;
     camera.updateProjectionMatrix();
     minimap.relayout();
     post?.setSize(w, h);
@@ -534,10 +549,18 @@ async function boot(): Promise<void> {
     // fenêtre d'ombre du soleil : suit la caméra avec quantification 0,5 m (anti shadow
     // swimming, P1-2) via le helper de lights.ts
     if (shadows) updateSunShadow(sun, cam);
+    // Ciel de verrière : une seule RectAreaLight, placée sous la trémie de la pièce
+    // courante (voir lights.updateSkyFill — la lumière suit la visite).
+    if (skyFill) updateSkyFill(skyFill, layout.rooms, cam, dt);
 
-    if (cur && idx !== captionIdx && !ui.panelIsOpen()) {
-      captionIdx = idx;
-      ui.setCaption(cur.work.title, metaLine(cur.work));
+    // Cartel : l'œuvre la plus proche, mais **rien** tant qu'on est dans le sas — à
+    // l'entrée et au retour, le cartel annonce l'artiste, pas une toile qu'on ne voit pas.
+    const inLobby = layout.rooms[zoneAt(layout, cam.x, cam.z)]?.lobby === true;
+    const capKey = inLobby ? -2 : idx;
+    if (capKey !== captionIdx && !ui.panelIsOpen()) {
+      captionIdx = capKey;
+      if (inLobby) ui.setCaption(data.artist, data.tagline ?? '');
+      else if (cur) ui.setCaption(cur.work.title, metaLine(cur.work));
     }
     const t = progressT();
     ui.setProgressBar(t);
