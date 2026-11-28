@@ -1,4 +1,4 @@
-import type { Layout, PlacedWork } from './layout';
+import { zoneAt, type Layout, type PlacedWork } from './layout';
 
 /**
  * Mini-plan de la galerie.
@@ -41,6 +41,13 @@ export class Minimap {
     this.plan.className = 'mm-plan';
 
     // --- salles (boîtes) ---
+    // Les largeurs sont **normalisées sur la somme réelle** des zones, pas sur la portée
+    // totale : les zones se touchent (elles se partagent la frontière du seuil), donc
+    // `(z1−z0)/span` les faisait plus larges que le plan et la dernière sortait de la
+    // colonne — elle recouvrait alors les boutons précédent/suivant.
+    const lengths = layout.zones.map((z) => Math.max(0.001, z.zMax - z.zMin));
+    const total = lengths.reduce((a, b) => a + b, 0);
+    let cursor = 0;
     layout.zones.forEach((zone, zi) => {
       const z0 = Math.max(zone.zMin, zMin);
       const z1 = Math.min(zone.zMax, zMax);
@@ -49,18 +56,23 @@ export class Minimap {
       box.type = 'button';
       box.className = 'mm-room';
       if (zone.lobby) box.classList.add('lobby');
-      // largeur proportionnelle à la longueur réelle de la salle
-      box.style.setProperty('--w', `${((z1 - z0) / this.span) * 100}%`);
+      const w = (lengths[zi] / total) * 100;
+      box.style.setProperty('--l', `${cursor}%`);
+      box.style.setProperty('--w', `${w}%`);
+      cursor += w;
       box.title = zone.lobby ? 'Entrée' : `Aller à « ${zone.name} »`;
       box.setAttribute('aria-label', zone.lobby ? 'Entrée' : `Aller à la salle ${zone.name}`);
       const fill = document.createElement('span');
       fill.className = 'mm-room-fill';
       box.appendChild(fill);
       this.fills.push(fill);
-      const name = document.createElement('span');
-      name.className = 'mm-room-name';
-      name.textContent = zone.name;
-      box.appendChild(name);
+      // le sas n'affiche pas de nom : sa boîte fait 2 m sur 88, le libellé serait tronqué
+      if (!zone.lobby) {
+        const name = document.createElement('span');
+        name.className = 'mm-room-name';
+        name.textContent = zone.name;
+        box.appendChild(name);
+      }
       box.addEventListener('click', (e) => {
         e.stopPropagation();
         this.onZonePick?.(zi);
@@ -122,14 +134,14 @@ export class Minimap {
     for (const [id, el] of this.stops) el.classList.toggle('active', id === currentId);
 
     // remplissage progressif de la salle courante
-    const zi = this.layout.zones.findIndex((z) => camZ <= z.zMax + 0.001 && camZ >= z.zMin - 0.001);
+    const zi = zoneAt(this.layout, camZ);
     this.roomBoxes.forEach((box, i) => {
       const zone = this.layout.zones[i];
       box.classList.toggle('active', i === zi);
       const fill = this.fills[i];
       if (!fill) return;
-      const z0 = Math.max(zone.zMin, this.zMax - this.span);
-      const z1 = Math.min(zone.zMax, this.zMax);
+      const z0 = Math.min(zone.zMin, zone.zMax);
+      const z1 = Math.max(zone.zMin, zone.zMax);
       const len = Math.max(0.001, z1 - z0);
       const p = i === zi ? Math.min(1, Math.max(0, (z1 - camZ) / len)) : i < zi ? 1 : 0;
       fill.style.setProperty('--fill', `${p * 100}%`);

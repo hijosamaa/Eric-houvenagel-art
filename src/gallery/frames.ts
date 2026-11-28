@@ -187,7 +187,10 @@ function materials(): NonNullable<typeof matCache> {
   const mat = new THREE.MeshStandardMaterial({ color: 0xf6f2e9, roughness: 0.96, envMapIntensity: 0.2 });
   // Laiton patiné du tube : « plus clair que le cadre » et 22 mm de diamètre, il ne peut
   // plus lire comme une barre noire plus large que la toile (P0-2).
-  const brass = new THREE.MeshStandardMaterial({ color: 0x8d7752, roughness: 0.42, metalness: 0.55, envMapIntensity: 0.9 });
+  // Bronze brun plutôt que laiton clair : un luminaire de tableau peint en bronze
+  // disparaît dans le mur, un luminaire laiton clair devient une baguette de bois
+  // clair posée au-dessus de la toile (c'était le cas, et cela attirait l'œil).
+  const brass = new THREE.MeshStandardMaterial({ color: 0x4a4238, roughness: 0.38, metalness: 0.62, envMapIntensity: 0.7 });
   // Lentille : luminance HDR constante (non éclairée) → seul émissif volontaire de l'œuvre.
   const lens = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const k = FRAME_METRICS.lensPeak;
@@ -386,7 +389,7 @@ function bevelRing(
 /** Tube Ø 22 mm + 2 bras plats, fusionnés (1 draw call). */
 function luminaireGeometry(length: number, y: number, z: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const tube = new THREE.CylinderGeometry(0.011, 0.011, length, 12, 1);
+  const tube = new THREE.CylinderGeometry(0.0085, 0.0085, length, 12, 1);
   tube.rotateZ(Math.PI / 2);
   tube.translate(0, y, z);
   parts.push(tube);
@@ -526,7 +529,7 @@ export function buildFrame(
 
     const lens = new THREE.Mesh(cached.lens, m.lens);
     lens.rotation.x = Math.PI / 2; // normale −y : la fente est vue de dessous
-    lens.position.set(0, y - 0.0115, z + 0.001);
+    lens.position.set(0, y - 0.0092, z + 0.001);
     lens.name = 'lentille';
     root.add(lens);
 

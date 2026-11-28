@@ -375,16 +375,16 @@ body.cursor-view #scene:active {
 
 .mm-plan {
   position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
   height: 100%;
+  /* filet : le plan ne doit JAMAIS recouvrir les boutons du cartel */
+  overflow: hidden;
 }
 
 /* une salle = une boîte, largeur ∝ longueur réelle */
 .mm-room {
-  position: relative;
-  flex: 0 0 var(--w, auto);
+  position: absolute;
+  left: var(--l, 0%);
+  width: var(--w, 0%);
   min-width: 0;
   height: 32px;
   margin-top: 6px;
@@ -399,6 +399,10 @@ body.cursor-view #scene:active {
 .mm-room.lobby {
   border-style: dashed;
   opacity: 0.7;
+  /* le sas ne fait que 2 m sur 88 : on lui garde un trait visible, sans déborder sur la
+     première salle (les boîtes sont en position absolue, un min-width déborderait) */
+  min-width: 0;
+  outline-offset: 1px;
 }
 .mm-room:hover {
   border-color: var(--accent);
@@ -496,6 +500,8 @@ body.cursor-view #scene:active {
 
 #nav {
   grid-column: 3;
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -1159,13 +1165,22 @@ body.cursor-view #scene:active {
     display: none;
   }
 
+  /* Les pastilles de salle passent SOUS le nom de l'artiste : à quatre salles, elles ne
+     tenaient plus à côté du logo et venaient se superposer au titre. */
   #rooms-bar {
-    top: var(--s4);
+    top: 44px;
+    right: var(--gutter);
     gap: 6px;
   }
   .room-chip {
-    height: 34px;
-    padding: 0 10px;
+    height: 28px;
+    min-width: 30px;
+    padding: 0 8px;
+    justify-content: center;
+  }
+  #toast {
+    top: 86px;
+    max-width: min(86vw, 360px);
   }
   .room-chip .room-name {
     display: none; /* mobile : numéro seul, la barre tient à côté du logo */

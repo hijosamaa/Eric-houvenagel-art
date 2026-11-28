@@ -149,7 +149,10 @@ export function buildPaintings(
     // vers +x, c'est-à-dire vers la salle.
     group.rotation.y = p.faceX === 1 ? Math.PI / 2 : -Math.PI / 2;
 
-    const frame = buildFrame(p.w, p.h, { shadows, coarse });
+    // Moulures variées (dorée / discrète / muséale) : trente cadres identiques trahissent
+    // le catalogue. Le choix suit l'index pour rester stable d'un rendu à l'autre.
+    const variant = (['gilt', 'discrete', 'gilt', 'museum'] as const)[i % 4];
+    const frame = buildFrame(p.w, p.h, { shadows, coarse, variant });
     group.add(frame.root);
 
     // Toile : plan nu, mate (pas de vernis spéculaire qui refléterait la verrière),

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import type { GalleryData } from './types';
 
-import { computeLayout, Z_START, type PlacedWork } from './gallery/layout';
+import { computeLayout, zoneAt, Z_START, type PlacedWork } from './gallery/layout';
 
 import { updateSunShadow } from './gallery/lights';
 
@@ -45,12 +45,21 @@ async function boot(): Promise<void> {
 
   const res = await fetch(`${base}data/works.json`);
   const data = (await res.json()) as GalleryData;
+  // `?dup=N` : outil de mise en scène (jamais en prod) pour préfigurer une trentaine
+  // d'œuvres. Les copies sont **réparties en tourniquet** sur les salles, sinon elles
+  // s'empilent dans la première et l'on juge une salle de 50 m au lieu d'une suite
+  // équilibrée.
   const dupParam = Number(new URLSearchParams(location.search).get('dup') || '0');
   if (dupParam > 1 && data.works.length > 0) {
     const baseWorks = [...data.works];
+    const roomIds = [...data.rooms].sort((a, b) => a.order - b.order).map((r) => r.id);
+    const roomIndex = (id: string): number => Math.max(0, roomIds.indexOf(id));
     for (let k = 2; k <= dupParam; k++) {
       for (const w of baseWorks) {
-        data.works.push({ ...w, id: `${w.id}-${k}`, order: w.order + (k - 1) * 100 });
+        const room = roomIds.length > 0
+          ? roomIds[(roomIndex(w.room) + (k - 1)) % roomIds.length]
+          : w.room;
+        data.works.push({ ...w, id: `${w.id}-${k}`, room, order: w.order + (k - 1) * 100 });
       }
     }
   }
@@ -59,9 +68,15 @@ async function boot(): Promise<void> {
   // 1ère œuvre en ~1200w (clampée sans upscale), les autres en 800w pour ne jamais
   // augmenter le poids servi.
   const webpOk = webpSupported();
-  data.works.forEach((w, i) => {
-    const targetW = i === 0 ? 1200 : 800;
-    const u = webpOk ? pickUrl(w, 'webp', targetW) : pickUrl(w, 'jpeg', 800);
+  data.works.forEach((w) => {
+    // Les masters du projet plafonnent à 1080 px : servir du 800 px pour 29 œuvres sur 30
+    // agrandissait la toile de 1,9× dans le cadre (c'était l'élément le plus flou de
+    // l'image). On prend donc la plus grande variante disponible — sauf sur petit écran,
+    // où 30 textures de 1080² coûteraient 140 Mo de VRAM pour des toiles de 200 px.
+    const smallScreen = window.matchMedia('(pointer: coarse)').matches
+      || Math.min(window.innerWidth, window.innerHeight) < 640;
+    const targetW = smallScreen ? 800 : 1080;
+    const u = webpOk ? pickUrl(w, 'webp', targetW) : pickUrl(w, 'jpeg', targetW);
     if (u) w.image = u;
   });
   // Preload LCP : la 1ère œuvre en 1200w dès le fetch de works.json (même URL que
@@ -171,9 +186,16 @@ async function boot(): Promise<void> {
   }
 
   let navTarget: number | null = null;
+  /** Dernière œuvre visée explicitement (flèches, clic, salle) : évite de « sauter » la
+   *  première œuvre quand on part du sas, où `currentIndex` renvoie déjà 0. */
+  let focusedIdx: number | null = null;
   function step(dir: 1 | -1): void {
     const ps = layout.placed;
-    const idx = navTarget ?? currentIndex(controls.currentZ());
+    // Depuis le sas, la caméra est *avant* la première œuvre : « suivante » doit donc
+    // l'y emmener (l'ancien code partait de `currentIndex`, déjà égal à 0, et sautait la
+    // première toile).
+    const beforeFirst = ps.length > 0 && controls.currentZ() > ps[0].z + 0.3;
+    const idx = navTarget ?? focusedIdx ?? (beforeFirst ? -1 : currentIndex(controls.currentZ()));
     if (dir === 1 && idx >= ps.length - 1) {
       navTarget = null;
       if (ui.panelIsOpen()) {
@@ -190,6 +212,7 @@ async function boot(): Promise<void> {
     }
     const targetIdx = clampIdx(idx + dir);
     navTarget = targetIdx;
+    focusedIdx = targetIdx;
     setTimeout(() => {
       if (navTarget === targetIdx) navTarget = null;
     }, 1600);
@@ -210,6 +233,7 @@ async function boot(): Promise<void> {
 
   function focusWork(p: PlacedWork): void {
     panelWork = p;
+    focusedIdx = layout.placed.indexOf(p);
     if (controls.mode === 'guided' && Math.abs(controls.currentZ() - p.z) > 3.2) {
       panelTravelUntil = performance.now() + 5000; // le panneau reste ouvert pendant le trajet
     } else {
@@ -228,8 +252,16 @@ async function boot(): Promise<void> {
   function goToZone(zi: number): void {
     const zone = layout.zones[zi];
     if (!zone) return;
+    // le sas n'a pas d'œuvre : « Entrée » ramène simplement en haut de page
+    if (zone.lobby) {
+      if (ui.lightboxIsOpen()) ui.closeLightbox();
+      if (ui.indexIsOpen()) ui.closeIndex();
+      window.scrollTo({ top: 0, behavior: controls.reduced ? 'auto' : 'smooth' });
+      return;
+    }
     const first = layout.placed.find((p) => p.work.room === zone.id);
     if (!first) return;
+    focusedIdx = layout.placed.indexOf(first);
     if (ui.lightboxIsOpen()) ui.closeLightbox();
     if (ui.indexIsOpen()) ui.closeIndex();
     if (ui.panelIsOpen()) {
@@ -257,6 +289,15 @@ async function boot(): Promise<void> {
         const free = controls.mode === 'free';
         controls.setMode(free ? 'guided' : 'free');
         ui.setFreeLabel(!free);
+        // La visite libre se lance depuis l'index : sans fermer l'index, rien ne semble
+        // se passer et l'on ne devine pas les touches.
+        if (!free) {
+          if (ui.indexIsOpen()) ui.closeIndex();
+          if (ui.panelIsOpen()) ui.closePanel();
+          ui.toast('Visite libre : ZQSD ou glisser pour se déplacer · Échap pour revenir au parcours', 9000);
+        } else {
+          ui.toast('Retour au parcours guidé.', 4000);
+        }
       },
       onEnter: () => {
         entered = true;
@@ -434,8 +475,13 @@ async function boot(): Promise<void> {
     const camZ = controls.currentZ();
     for (const e of entries) {
       const dz = Math.abs(e.placed.z - camZ);
-      if (dz < 16) ensureTexture(e, base, texAniso);
-      else if (dz > 30) releaseTexture(e); // LRU : libère la mémoire GPU au-delà de 30 m
+      // Entre 16 et 30 m, une œuvre n'était NI chargée NI libérée : elle restait un cadre
+      // vide (25 toiles sur 30 dans une salle de 30 m). On charge donc **toute la salle**
+      // et on libère une salle plus loin.
+      const loadD = touch ? 34 : 75;
+      const dropD = touch ? 50 : 110;
+      if (dz < loadD) ensureTexture(e, base, texAniso);
+      else if (dz > dropD) releaseTexture(e);
     }
     // overlay = tout ce qui couvre la scène et doit rendre le curseur natif (fiche, lightbox, index, fin)
     const overlayOpen = ui.panelIsOpen() || ui.lightboxIsOpen() || ui.indexIsOpen() || ui.endIsOpen();
@@ -500,11 +546,18 @@ async function boot(): Promise<void> {
     if (panelWork && Math.abs(camZ - panelWork.z) <= 3.2) panelTravelUntil = 0;
     minimap.update(camZ, cur?.work.id ?? null);
     // indicateur de salle (cartel + chip actif) — même logique de zone que minimap.update
-    const zi = layout.zones.findIndex((z) => camZ <= z.zMax + 1.2 && camZ >= z.zMin - 1.2);
+    const zi = zoneAt(layout, camZ);
     if (zi !== activeZoneIdx) {
       activeZoneIdx = zi;
+      const zone = layout.zones[zi];
       ui.setActiveRoom(zi);
-      ui.setRoomLabel(zi >= 0 ? `Salle ${zi + 1}/${layout.zones.length} · ${layout.zones[zi].name}` : '');
+      // numérotation sur les salles d'accrochage : le sas s'appelle « Entrée », il n'est
+      // pas « Salle 1 » (l'index dit 3 salles, le cartel doit dire la même chose)
+      if (zone?.lobby) ui.setRoomLabel('Entrée');
+      else {
+        const ri = layout.zones.slice(0, zi).filter((z) => !z.lobby).length;
+        ui.setRoomLabel(`Salle ${ri + 1}/${Math.max(1, layout.zones.filter((z) => !z.lobby).length)} · ${zone?.name ?? ''}`);
+      }
     }
     if (post) post.render(dt);
     else renderer.render(scene, camera);

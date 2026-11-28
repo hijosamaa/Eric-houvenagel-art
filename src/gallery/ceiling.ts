@@ -140,7 +140,9 @@ export function buildCeilings(layout: Layout, mats: CeilingMaterials, shadows: b
     const paneMat = new THREE.MeshBasicMaterial({
       map: skyTexture(),
       // 1,16–1,26 : le vitrage « brûle » un peu comme sur une photo, sans perdre le ciel.
-      color: new THREE.Color(1.16, 1.2, 1.26),
+      // 2,4 : franchement au-dessus du seuil de bloom (1,02). À 1,16 le ciel restait un
+      // aplat gris-bleu sans halo, et la verrière n'« éclairait » plus l'image.
+      color: new THREE.Color(2.35, 2.45, 2.6),
       fog: false,
     });
     panes.push(paneMat);

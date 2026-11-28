@@ -1,99 +1,130 @@
 # Refonte qualité de la galerie — état d'avancement (reprise)
 
 > Document de reprise : il dit ce qui est fait, ce qui reste, et comment vérifier.
-> Mis à jour à chaque session. Dernière mise à jour : session « charpente peinte + assets ».
+> Mis à jour à chaque session.
 
 ## Où en est le rendu
 
-Le hall est aujourd'hui un **atelier d'artiste** : dalle à trémie, charpente **peinte**
-(poutres maîtresses chanfreinées + solives + sablière, plus de chêne sombre), verrière à
-meneaux fins avec ciel dégradé, murs à la chaux, **parquet chêne** et plantes en pots.
+Le lieu est une **enfilade** : un sas d'entrée, puis **trois salles** de hauteurs
+différentes (3,55 / 4,15 / 3,30 m), œuvres **en vis-à-vis** tous les 2,8 m. Trente toiles
+tiennent donc dans quatre volumes distincts au lieu d'une nef unique de 90 m.
 
-Fichiers créés : `src/gallery/wood.ts`, `src/gallery/plants.ts`, `src/gallery/ceiling.ts`.
-Refondus : `scene.ts`, `lights.ts`, `textures.ts`, `frames.ts`, `paintings.ts`,
-`furniture.ts`, `post.ts`, `physics.ts`, `main.ts`.
+Architecture : murs de **seuil** percés d'une porte (trumeaux + linteau), murs à la chaux,
+parquet chêne à joints réels, plafonds à trémie avec verrière et deux ou trois poutres
+peintes par salle. Plus de solives tous les 1,9 m, plus de portiques à pilastres.
 
-## Les trois bugs qui ont tout débloqué (ne pas régresser)
+Fichiers : `layout.ts` (plan, chemins, dwell), `ceiling.ts` (plafonds/verrières par salle),
+`wood.ts` (profils bois), `plants.ts` (7 espèces), `scene.ts` (volumes, matériaux, seuils,
+texte de salle), `frames.ts`, `paintings.ts`, `furniture.ts`, `physics.ts`, `post.ts`,
+`controls.ts`, `minimap.ts`.
 
-1. **Sol jamais rendu** (`scene.ts`) — les quads du parquet étaient ordonnés à l'envers :
-   le produit vectoriel donnait une normale −Y et le back-face culling supprimait le sol
-   entier. On voyait le fond de scène à travers (l'« aplat blanc » des captures d'avant).
+## Les quatre bugs qui ont débloqué le rendu (ne pas régresser)
+
+1. **Le sol n'était pas rendu** — quads du parquet ordonnés à l'envers (normale −Y), le
+   back-face culling supprimait la face ; on voyait le fond de scène à travers.
    Sens correct : `(x0,z0) → (x0,z1) → (x1,z1)` puis `(x0,z0) → (x1,z1) → (x1,z0)`.
-2. **Assets IA silencieusement ignorés** (`textures.ts`) — `precalcTexture()` renvoyait un
-   placeholder 2×2 puis remplaçait l'image. three alloue les textures en stockage
-   **immuable** (`texStorage2D`) : le remplacement partait en
-   `glTexSubImage2D: Offset overflows texture dimensions` et le GPU gardait le 2×2.
-   Correctif : `t.dispose()` **avant** `t.needsUpdate = true` (réallocation complète).
-   Conséquence : `floor`, `plaster`, `gilt`, `metal`, `beam` sont maintenant réellement
-   affichés — d'où le changement complet du nuancier.
-3. **Tone mapping** (`scene.ts`) — ACES → **Neutral** (Khronos PBR Neutral) à exposition
-   0,94 : ACES désaturait dès 0,6 de luminance et transformait le chêne en gris-blanc.
+2. **Tous les assets IA étaient ignorés** — `precalcTexture()` remplaçait un placeholder
+   2×2 par l'asset ; three alloue en stockage immuable (`texStorage2D`), d'où
+   `glTexSubImage2D: Offset overflows texture dimensions` et un GPU qui gardait le 2×2.
+   Correctif : `t.dispose()` **avant** `t.needsUpdate`.
+3. **Tone mapping** — ACES désaturait dès 0,6 de luminance (chêne → gris-blanc).
+   Passage à **Khronos PBR Neutral**, exposition 0,94.
+4. **Convention `faceX`** — `faceX = +1` signifie *mur gauche* (x < 0) : le signe entre
+   `faceX` et `x` est inversé. Une erreur de signe enfouissait les toiles dans le mur.
 
 ## Décisions de direction artistique
 
-- **Charpente peinte** blanc cassé (l'utilisateur n'aime pas les poutres) : le bois ne se
-  lit que par son relief, ses chanfreins et ses ombres.
-- **Le sol est l'ancrage** : 60 lames de 20 cm (12 m / 60 = 7 lames par tuile d'asset de
-  1,40 m). L'asset fournit le fil et les nœuds, la géométrie fournit le joint (gorge cuite
-  en couleurs de sommet, 1,2 cm de chaque côté) parce qu'en filtrage anisotrope le GPU
-  moyenne les joints sur 3-4 lames : un sol en aplat de couleur.
-- **Étalonnage des assets à l'upload** (`TexOpts.grade`, filtre CSS dessiné au transfert) :
-  le parquet est désaturé à 45 %, la chaux à 78 % de contraste, la dorure à 62 %. C'est ce
-  qui permet d'utiliser les assets tels quels sans qu'ils jurent avec le hall.
-- **Tissus, métaux** : meneaux acier anthracite chaud (jamais noirs), dorure à 78 % de
-  métal (au-delà elle ne renvoie plus que l'IBL et vire olive).
+- **Charpente peinte** blanc cassé : le bois ne se lit que par le relief et l'ombre.
+- **Le sol est l'ancrage** : 60 lames de 20 cm (7 lames par tuile d'asset de 1,40 m). Le
+  joint est cuit en couleur de sommet, parce qu'en filtrage anisotrope le GPU moyenne les
+  joints sur 3-4 lames (mesuré : écart-type 1,5 sur 400 px).
+- **Étalonnage des assets à l'upload** (`TexOpts.grade`) : parquet désaturé à 45 %, chaux à
+  78 %, dorure en `roughnessMap` (en albédo ses plis faisaient des chevrons).
+- **Plafond** : sous-face quasi blanche + émission neutre 0,13 (0,24 sur mobile). Une dalle
+  ne reçoit que le premier rebond de l'IBL ; sans ce terme elle lisait « contreplaqué ».
+- **Nom de salle** : lettrage peint sur le trumeau, jamais une plaque sur un linteau.
 
-## Ce qui reste à faire
+## Navigation
 
-### Priorité 1 — finitions visibles
-- [ ] **Ombres de contact** : les socles et le banc ne « posent » pas encore sur le sol.
-      Piste : AO cuit en couleurs de sommet au pied des meubles, ou GTAO `radius` 0,25 m
-      sur les petits objets (le pass est global : plutôt cuire l'AO).
-- [ ] **Sous-faces de la charpente** : encore plates en vue longue. Piste : dégradé de
-      couleur de sommet sur les faces du bas des poutres/solives (assombrir au contact de
-      la dalle), qui remplace un AO que GTAO ne capte pas à 3,4 m.
-- [ ] **Dorure** : vérifier au close-up la tuile de 80 mm (contraste 0,62 / brightness 1,16)
-      après le dernier réglage — la dernière série de captures n'a pas été rejugée.
-- [ ] **Plantes** : silhouettes encore un peu « brindilles » (olivier, eucalyptus). Ajouter
-      du feuillage et un pot plus large ; les 7 espèces sont dans `plants.ts`
-      (`plantPlacements` pour la mise en espace).
+| Mode | État |
+|---|---|
+| Scroll guidé (dwell devant chaque œuvre) | OK, la caméra se décale d'un mur à l'autre |
+| Flèches ← →, PageUp/Down, Espace | OK |
+| Mini-plan (salles cliquables, nom, progression, curseur) | OK |
+| Visite libre ZQSD/WASD + souris (physique Rapier) | OK |
+| Touches 1-9 (saut de salle), Échap, clic sur une toile | OK |
 
-### Priorité 2 — assets à demander à l'utilisateur (Nano Banana)
-Slots sans asset (`docs/prompts-nano-banana.md` à compléter, section « restants ») :
-- `oak` — chêne clair pour le mobilier (banc, console, socles) ;
-- `painted` — bois peint blanc cassé, grain à peine perceptible (charpente) ;
-- `leaf` — fibre de feuille **neutre** (carte de luminance, pas une couleur verte) ;
-- `plaster` — déjà là, mais une variante « badigeon très lisse » serait meilleure que les
-  coups de taloche actuels.
+`?dup=N` répartit les copies en tourniquet sur les salles (mise en scène d'une trentaine
+d'œuvres) ; `?dup=6` = 30 toiles.
+
+## Ce qui reste
+
+### Priorité 1
+- [ ] Ombres de contact : socles et bancs ne « posent » pas encore franchement.
+- [ ] Plantes : silhouettes d'olivier/eucalyptus encore en brindilles ; densifier.
+- [ ] Chaux : les coups de taloche de l'asset se lisent comme des rayures à 1 m
+      (voir la variante `plaster-lisse.webp` demandée dans `docs/prompts-nano-banana.md`).
+- [ ] Bancs centrés : vérifier qu'ils ne gênent pas la caméra guidée dans les salles
+      étroites (la caméra se décale de ±1,0 m, le banc fait 0,44 m de profondeur).
+
+### Priorité 2 — assets à demander (prompts écrits)
+`docs/prompts-nano-banana.md` → section « À demander maintenant » : `painted`, `oak`,
+`leaf`, variante `plaster-lisse`.
 
 ### Priorité 3 — vérifications
-- [ ] `npm run build` passe (fait), tester la version prod (`npm run preview`) : la
-      qualité des textures en 2048 et le tone mapping Neutral changent le rendu.
-- [ ] Perf réelle : le headless swiftshader n'est pas représentatif. Le sol fait 9 600
-      triangles (60 lames × 5 colonnes × 20 rangées × 2), négligeable.
-- [ ] Mobile : `coarse` → textures 1024, pas de GTAO, hemi 0,46. À revalider (le
-      changement d'environnement PMREM et de tone mapping impacte aussi le mobile).
+- [ ] `npm run build` OK, à rejouer ; test prod (`npm run preview`).
+- [ ] Perf réelle desktop/mobile (le headless swiftshader n'est pas représentatif).
+- [ ] Écran de fin / « recommencer » sur un parcours de 30 œuvres.
 
 ## Comment vérifier visuellement
 
-Serveur de dev (port 5199) puis captures :
-
 ```bash
+npm run dev -- --port 5199                      # serveur de dev
 PLAYWRIGHT_BROWSERS_PATH=/c/Users/Hijo/AppData/Local/ms-playwright \
-  node .vibe/shotkit/shoot-q.mjs .vibe/shots-q-pNN
+  node .vibe/shotkit/shoot-q.mjs .vibe/shots-q-pNN "http://localhost:5199/?dup=6"
+PLAYWRIGHT_BROWSERS_PATH=/c/Users/Hijo/AppData/Local/ms-playwright \
+  node .vibe/shotkit/views.mjs .vibe/views-pNN "http://localhost:5199/?dup=6"
 ```
 
-12 vues : parcours guidé 0 → 0,85 (scroll), détails plafond / cadres / sol / plantes /
-mur droit, mobile. Les captures sont déterministes : deux séries identiques au pixel près
-signifient que le changement n'a pas été pris en compte (c'est ainsi qu'a été trouvé le
-bug du sol).
+`shoot-q.mjs` = parcours guidé + détails + mobile. `views.mjs` = une vue large par salle +
+détails (lampe, plante, plafond, sol). Les captures sont **déterministes** : deux séries
+identiques au pixel près signifient que le changement n'a pas été pris en compte.
 
-Sondes utiles (dans `.vibe/shotkit/`) : `probe.mjs` (taille/valeurs du `map` du sol),
-`probe4.mjs` (fond rouge : prouve si une surface est rendue ou non), `probe6.mjs`
-(matériau du sol isolé).
+Sondes : `probe.mjs` (map du sol), `probe4.mjs` (fond rouge = la surface est-elle rendue ?),
+`probe6.mjs` (matériau du sol isolé), `probe9.mjs` (les 4 modes de navigation).
 
 ## État git
 
-Branche `main`. Le présent commit contient la refonte complète (charpente, sol, plants,
-assets réellement pris en compte, tone mapping Neutral). Aucune régression connue de
-build ou de typage (`npx tsc --noEmit` OK).
+`main` : `c1ea2f0` (charpente peinte, parquet, assets) + `6625023` (textures HD).
+Branche de travail : `vibe/salles-30` (sas + 3 salles, mini-plan, charpente apurée).
+
+## Audit de la session « 30 œuvres » (ce qui est corrigé)
+
+Deux audits indépendants (rendu, navigation) ont été passés sur la version `?dup=6`.
+Corrigé dans `vibe/salles-30` :
+
+- **25 toiles vides sur 30** : le palier LRU (charger < 16 m / libérer > 30 m) laissait
+  une zone morte. Chargement d'une salle entière (75 m desktop, 34 m mobile), libération
+  une salle plus loin.
+- **Toiles floues** : les œuvres étaient servies en 800 px alors que les masters font
+  1080 → 1080 sur desktop, 800 sur mobile (VRAM).
+- **Bouton « précédent » recouvert par le mini-plan** : largeurs des boîtes normalisées sur
+  la somme réelle des zones, `.mm-plan { overflow: hidden }`, `#nav { z-index: 3 }`.
+- **Mauvaise salle annoncée** : les zones se chevauchaient de 2,6 m et `findIndex` prenait
+  la première. Zones rendues **disjointes** au niveau des seuils + helper unique
+  `zoneAt()` utilisé par le cartel et le plan.
+- **Numérotation** : « Salle 1/3 · … » (le sas s'appelle « Entrée », il n'est plus « 1/4 »).
+- **Flèche « suivante » qui sautait la 1ʳᵉ œuvre** depuis le sas.
+- **Un glissement ouvrait la fiche** du tableau (origine du geste réécrite à chaque move).
+- **Sortie de la visite libre qui téléportait** à l'entrée (scroll non resynchronisé).
+- **Visite libre** : l'index se ferme et un message donne les touches.
+- **Verrière** : vitrage à 2,4 (au-delà du seuil de bloom), meneaux moins métalliques.
+- **Plafond** : asset `ceiling` dédié, anisotropie 4, bump 1,5 mm, émission 0,13/0,24.
+- **Plinthe** : elle reçoit désormais le dégradé de pied de mur (couleurs de sommet).
+- **Cadres** : variantes cyclées (dorée / discrète / musée) au lieu de 30 moulures
+  identiques.
+- **Ombres de contact** au sol sous bancs, socles, console et pots (`contact.ts`).
+
+Reste ouvert (P1/P2, non bloquant) : moulure dorée encore « plate » (profil en tons cuits),
+chaux avec rayures à 1 m, plantes en brindilles, `prefers-reduced-motion` non testé sur le
+dwell, aide clavier du mode libre à afficher aussi en permanence.

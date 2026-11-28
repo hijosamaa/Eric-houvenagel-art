@@ -35,8 +35,11 @@ export const SPOT_SHADOW_LAYER = 2;
 /** Hémisphérique « jour » : ciel bleuté doux, sol chaud — lumière naturelle ambiante. */
 export const HEMI = {
   sky: 0xdae7f5,
-  ground: 0xe8e1d3,
-  intensity: 0.26,
+  // Rebond du parquet vers les sous-faces : c'est la seule lumière qui atteint une dalle
+  // (elle regarde le sol). Sans ce terme, le plafond tombait à 80 % de la valeur des murs
+  // ET franchement chaud — il lisait comme du contreplaqué sur un tiers de l'image.
+  ground: 0xf1eee6,
+  intensity: 0.42,
   /** Repli mobile (pas de RectAreaLight) : un peu plus haut pour compenser. */
   coarseIntensity: 0.46,
 } as const;

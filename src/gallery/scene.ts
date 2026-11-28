@@ -8,11 +8,13 @@ import { HEMI, ROOF_LAYER, SKY_FILL, SUN, TableSpots } from './lights';
 
 import { metalTexture, precalcTexture, paintedWoodTexture } from './textures';
 
-import { buildFurniture, furnitureMaterials } from './furniture';
+import { buildFurniture, furnitureColliders, furnitureMaterials } from './furniture';
 
-import { buildPlants, plantMaterials, type PlantsBuild } from './plants';
+import { buildPlants, plantColliders, plantMaterials, type PlantsBuild } from './plants';
 
 import { buildCeilings } from './ceiling';
+
+import { buildContactShadows } from './contact';
 
 import { chamferedSection, extrudedPrism } from './wood';
 
@@ -87,7 +89,7 @@ function buildEnvironmentScene(): THREE.Scene {
   // « contreplaqué » : un plafond peint ne peut pas être plus chaud que ses murs.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(18, 44),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.52, 0.47, 0.41) }),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.52, 0.48) }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.02;
@@ -97,8 +99,8 @@ function buildEnvironmentScene(): THREE.Scene {
 }
 
 /** Plâtre 2048 : grain fin + grandes marbrures douces. Les UV sont cuits en mètres. */
-function plasterTexture(aniso: number, coarse = false): THREE.Texture {
-  return precalcTexture('plaster', 2048, (g, s) => {
+function plasterTexture(aniso: number, coarse = false, extraGrade = '', slot = 'plaster'): THREE.Texture {
+  return precalcTexture(slot, 2048, (g, s) => {
     g.fillStyle = '#ece5d8';
     g.fillRect(0, 0, s, s);
     for (let i = 0; i < 26000; i++) {
@@ -125,7 +127,7 @@ function plasterTexture(aniso: number, coarse = false): THREE.Texture {
     maxSize: coarse ? 1024 : 2048,
     // grade : l'asset est une chaux trowelée dont les coups de taloche sont très
     // contrastés ; adoucis, ils deviennent des nuances de badigeon.
-    grade: 'saturate(0.8) brightness(1.06) contrast(0.78)',
+    grade: `saturate(0.8) brightness(1.06) contrast(0.78) ${extraGrade}`.trim(),
     // miroir : sur 3,4 m de tuile, une répétition simple aligne les taloches en colonnes
     mirror: true,
   }, '#ece5d8');
@@ -260,14 +262,14 @@ function plaqueTexture(text: string): THREE.CanvasTexture {
   g.textAlign = 'left';
   g.textBaseline = 'alphabetic';
   // numéro de salle au-dessus, nom en dessous
-  g.font = '500 30px Inter, system-ui, sans-serif';
-  g.letterSpacing = '10px';
-  g.fillText('SALLE', 4, 42);
-  g.font = 'italic 400 62px Georgia, serif';
-  g.letterSpacing = '1px';
-  g.fillText(text, 2, 128, w - 12);
-  g.fillStyle = 'rgba(46,44,40,0.35)';
-  g.fillRect(2, 150, 120, 2);
+  g.font = '500 34px Inter, system-ui, sans-serif';
+  g.letterSpacing = '12px';
+  g.fillText('SALLE', 6, 48);
+  g.font = 'italic 400 84px Georgia, serif';
+  g.letterSpacing = '0px';
+  g.fillText(text, 4, 146, w - 16);
+  g.fillStyle = 'rgba(46,44,40,0.3)';
+  g.fillRect(6, 164, 150, 2);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -353,12 +355,27 @@ function entryTextTexture(artist: string, tagline: string, rooms: string[]): THR
 }
 
 /** Profil de moulure extrudé (plinthe). */
-function moldingGeometry(profile: [number, number][], len: number): THREE.ExtrudeGeometry {
+function moldingGeometry(profile: [number, number][], len: number, footGradient = false): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
   shape.moveTo(profile[0][0], profile[0][1]);
   for (let i = 1; i < profile.length; i++) shape.lineTo(profile[i][0], profile[i][1]);
   shape.closePath();
-  return new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
+  if (footGradient) {
+    // occlusions de pied : 0,86 au sol → 1,00 à 11 cm (le profil de plinthe)
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const col = new Float32Array(pos.count * 3);
+    const top = Math.max(...profile.map((p) => p[1]));
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.min(1, Math.max(0, pos.getY(i) / Math.max(0.001, top)));
+      const k = 0.86 + 0.14 * Math.pow(t, 0.7);
+      col[i * 3] = k;
+      col[i * 3 + 1] = k * 0.998;
+      col[i * 3 + 2] = k * 0.99;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+  return g;
 }
 
 export function createScene(
@@ -448,12 +465,19 @@ export function createScene(
 
   // ---- matériaux ----
   const plasterTex = plasterTexture(aniso, opts.coarse);
-  // La dalle a ses UV en tuiles de 6,4 m : repeat 1 (sinon l'enduit est étiré en stries).
-  const ceilingTex = plasterTexture(aniso, opts.coarse);
+  // La dalle a ses UV en tuiles de 3,4 m (voir ceiling.ts) : repeat 1.
+  // Désaturée à 35 % : l'enduit crème, vu en sous-face sous un rebond chaud, tirait sur
+  // le kraft ; un plafond peint lit gris-blanc, même dans une salle très chaude.
+  const ceilingTex = plasterTexture(
+    Math.min(aniso, 4),
+    opts.coarse,
+    'saturate(0.35) brightness(1.04)',
+    'ceiling',
+  );
   const plaster = new THREE.MeshStandardMaterial({
     map: plasterTex,
     bumpMap: plasterTex,
-    bumpScale: 0.004,
+    bumpScale: 0.0018,
     roughness: 0.94,
     envMapIntensity: 0.2,
     vertexColors: true,
@@ -482,13 +506,24 @@ export function createScene(
     // Même enduit que les murs (l'asset `ceiling` dédié montre des stries qui lisent
     // comme du contreplaqué une fois étirées sur la dalle) mais un ton plus clair.
     map: ceilingTex,
-    color: 0xf4efe6,
+    // Quasi blanc : une sous-face ne reçoit que le rebond. Avec un ton crème elle virait
+    // au « contreplaqué » sur toute la surface du plafond, qui occupe un tiers de l'image.
+    color: 0xfcf8f1,
     bumpMap: ceilingTex,
-    bumpScale: 0.003,
+    // 1,5 mm : une sous-face ne montre pas de relief à 3 m, un bump plus fort ne fait
+    // qu'ajouter du bruit de shading sur toute la surface.
+    bumpScale: 0.0015,
     roughness: 0.95,
     // La dalle ne voit aucune source directe (elle regarde le sol) : c'est l'IBL qui la
-    // tient. Sans cela elle tombait dans un gris-brun sale au-dessus des toiles.
-    envMapIntensity: 1.35,
+    // tient, et il ne rend que le premier rebond. Un studio réel reçoit 3 à 4 rebonds sur
+    // une sous-face ; on les remplace par une faible émission neutre (0,13), qui relève le
+    // plafond **sans le teinter** et le ramène à ~90 % de la valeur des murs, comme sur
+    // une photo. Sans elle, la dalle lisait « contreplaqué » sur un tiers de l'image.
+    envMapIntensity: 1.7,
+    emissive: 0xfffaf2,
+    // mobile : pas de RectAreaLight de ciel ni de GTAO, donc moins de rebond perçu — on
+    // compense l'émission de la dalle pour que le plafond ne vire pas au kraft.
+    emissiveIntensity: opts.coarse ? 0.24 : 0.13,
   });
   // Bois peint de la charpente et des portiques : le relief et l'ombre font le travail.
   const paintedTex = paintedWoodTexture(aniso, 1, texMax);
@@ -509,15 +544,27 @@ export function createScene(
     roughness: 0.9,
     envMapIntensity: 0.2,
   });
+  // Plinthe : même enduit, mais elle **reçoit le dégradé de pied de mur** (couleurs de
+  // sommet). Sans lui, la plinthe restait 10-15 niveaux plus claire que le mur qu'elle
+  // borde, avec un filet spéculaire sur l'arête : le détail qui trahit une maquette.
+  const trimBase = new THREE.MeshStandardMaterial({
+    map: plasterTex,
+    color: 0xdfd8ca,
+    bumpMap: plasterTex,
+    bumpScale: 0.003,
+    roughness: 0.9,
+    envMapIntensity: 0.15,
+    vertexColors: true,
+  });
   // Meneaux : acier laqué **anthracite chaud**, pas du bronze noir. L'asset `metal` est
   // sombre (moyenne 74/57/34) : multiplié par une teinte bronze, il donnait des membres
   // quasi noirs, et la verrière se lisait comme un caisson de bois.
   const bronze = new THREE.MeshStandardMaterial({
     map: metalTexture(aniso, texMax),
     color: 0xcfc9c0,
-    roughness: 0.5,
-    metalness: 0.55,
-    envMapIntensity: 1.1,
+    roughness: 0.66,
+    metalness: 0.22,
+    envMapIntensity: 0.25,
   });
 
   const add = (
@@ -671,14 +718,14 @@ export function createScene(
     const zl = z1 - z0;
     if (zl < 0.3) continue;
     const zc = (z0 + z1) / 2;
-    const skirtGeo = moldingGeometry(skirtProfile, zl);
-    const skirtR = new THREE.Mesh(skirtGeo, trim);
+    const skirtGeo = moldingGeometry(skirtProfile, zl, true);
+    const skirtR = new THREE.Mesh(skirtGeo, trimBase);
     skirtR.rotation.y = Math.PI;
     skirtR.position.set(inner, 0, z1);
     skirtR.receiveShadow = opts.shadows;
     skirtR.name = 'plinthe';
     scene.add(skirtR);
-    const skirtL = new THREE.Mesh(skirtGeo, trim);
+    const skirtL = new THREE.Mesh(skirtGeo, trimBase);
     skirtL.position.set(-inner, 0, z0);
     skirtL.receiveShadow = opts.shadows;
     scene.add(skirtL);
@@ -700,6 +747,17 @@ export function createScene(
   // ---- Végétation ----
   const plants = buildPlants(layout, plantMaterials(aniso), opts.shadows);
   scene.add(plants.group);
+
+  // ---- Ombres de contact : bancs, socles, console, pots ----
+  // À 1,6 m de haut, le GTAO ne tient pas un meuble au sol au-delà de 4 m ; ces taches
+  // radiales (4 mm au-dessus du parquet) sont ce qui « pose » le mobilier.
+  {
+    const boxes = [
+      ...furnitureColliders(layout).map((c) => ({ x: c.x, z: c.z, hx: c.hx, hz: c.hz, strength: 1 })),
+      ...plantColliders(layout).map((c) => ({ x: c.x, z: c.z, hx: c.hx, hz: c.hz, strength: 0.75 })),
+    ];
+    scene.add(buildContactShadows(boxes, opts.shadows));
+  }
 
   // ---- Texte de salle sur le mur du fond ----
   if (opts.artist) {

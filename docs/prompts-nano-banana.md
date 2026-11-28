@@ -72,3 +72,59 @@ Alternative « tapis entier avec bordure » : si tu préfères un vrai tapis ent
 | `gilt.webp` | cadres dorés | œuvres | 512–1024 |
 
 Après dépôt, vérifie visuellement (les screenshots : `node .vibe/shotkit/shoot-v5.mjs http://localhost:5199/ .vibe/shots-check "check=0.45:1440x900:1"`).
+
+---
+
+## À demander maintenant (slots encore sans asset IA)
+
+Ces trois slots tournent aujourd'hui sur le générateur procédural : c'est correct, mais un
+asset IA les ferait passer au niveau des autres. Même convention de nom, même dossier.
+
+### `painted.webp` — bois peint de la charpente (2048, seamless)
+La structure du hall (poutres, dalles, passerelles) est **peinte blanc cassé** : le bois ne
+doit se lire que par son grain très fin, jamais par un contraste de couleur.
+
+> Seamless tileable texture of off-white painted wood, matte eggshell finish over oak, extremely subtle grain showing through the paint, colour around #eee8dd, faint brush texture, no drips, no chipped paint, no knots, even soft frontal lighting, 2048x2048, photorealistic, edges wrap perfectly.
+
+### `oak.webp` — chêne clair du mobilier (2048, seamless)
+Bancs, consoles, socles. Veine longue, ton miel clair, **sans vernis brillant**.
+
+> Seamless tileable texture of pale oak wood, long straight grain running along the vertical axis, light honey colour around #b8935f, fine open grain, a few small sound knots, bare oiled finish (matte, no varnish gloss), even soft frontal lighting, no reflections, 2048x2048, photorealistic, tiles perfectly on all edges.
+
+### `leaf.webp` — fibre de feuille (1024, seamless)
+**Carte de luminance neutre**, pas une couleur : les feuilles portent leur vert en couleur de
+sommet (sinon deux verts multipliés donnent un feuillage noir à l'ombre).
+
+> Seamless tileable grayscale-ish leaf surface texture, neutral luminosity map (no green tint), fine veins, slightly waxy micro-bumps, mid-grey around #b8b8b8, no highlights, no strong shadows, even flat lighting, 1024x1024, photorealistic, wraps on all edges.
+
+### Variante `plaster-lisse.webp` — badigeon très lisse (2048, seamless, optionnel)
+L'asset `plaster` actuel a des coups de taloche marqués, qui se lisent comme des rayures à
+1 m du mur. Une version plus lisse (badigeon de chaux essuyé) serait meilleure pour les
+salles d'accrochage.
+
+> Seamless tileable texture of a very smooth limewash wall, almost no trowel marks, only an extremely fine mineral haze, warm off-white #f3efe7, matte, no stains, no cracks, even soft frontal lighting, 2048x2048, photorealistic, edges wrap perfectly.
+
+### Ce qu'il ne faut PAS générer
+- Pas de AO / d'ombre baked dans les textures (la scène les calcule).
+- Pas de blanc pur (déclenche le bloom) ni de noir pur.
+- Pas de reflet de source (les reflets sont calculés par le moteur).
+
+---
+
+## Rappel de la chaîne de chargement (mise à jour)
+
+`precalcTexture()` demande, dans cet ordre :
+
+1. `assets/textures/ai/<name>.webp` puis `.jpg` — **pleine résolution 2048²** (priorité HD) ;
+2. sur mobile (`maxSize ≤ 1024`), la variante `-1024` est demandée **avant** la pleine
+   résolution, pour ne pas décoder une 2048² juste afin de la réduire ;
+3. `assets/textures/<name>-<taille>.webp` (généré au build par `scripts/gen-textures.mjs`) ;
+4. le générateur canvas interne.
+
+Le doublon `public/tex/` (21 Mo identiques servis une seconde fois) a été supprimé :
+**un seul dossier**, `public/assets/textures/ai/`.
+
+Un asset peut être **étalonné à l'upload** (`TexOpts.grade`, filtre CSS appliqué au
+transfert) : c'est ainsi que le parquet est désaturé à 45 %, la chaux à 78 % de contraste et
+la dorure ramenée dans le nuancier du hall. Si un asset arrive trop saturé ou trop
+contrasté, on le corrige ici plutôt que de le refuser.

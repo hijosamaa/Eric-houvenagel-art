@@ -53,7 +53,7 @@ export class GalleryControls {
   private yaw = 0;
   private pitch = 0;
   private readonly keys = new Set<string>();
-  private drag: { x: number; y: number; dist: number } | null = null;
+  private drag: { x: number; y: number; ox: number; oy: number; dist: number } | null = null;
   private focusTween: Tween<FocusState> | null = null;
   // Groupe tween.js dédié (v25 : new Tween(obj) sans groupe n'est PAS ajouté au groupe global)
   private readonly tweenGroup = new Group();
@@ -85,14 +85,17 @@ export class GalleryControls {
     window.addEventListener('keydown', (e) => this.onKey(e));
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
 
+    // Origine **immuable** du geste : l'ancienne version réécrivait `drag.x/y` à chaque
+    // `pointermove`, donc la distance testée au relâchement était toujours ~0 et un
+    // glissement de 70 px ouvrait la fiche du tableau survolé.
     canvas.addEventListener('pointerdown', (e) => {
-      this.drag = { x: e.clientX, y: e.clientY, dist: 0 };
+      this.drag = { x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, dist: 0 };
     });
     window.addEventListener('pointermove', (e) => {
       if (!this.drag) return;
       const dx = e.clientX - this.drag.x;
       const dy = e.clientY - this.drag.y;
-      this.drag.dist += Math.hypot(dx, dy);
+      this.drag.dist = Math.hypot(e.clientX - this.drag.ox, e.clientY - this.drag.oy);
       this.drag.x = e.clientX;
       this.drag.y = e.clientY;
       if (this.mode === 'free' && !this.focusTween) {
@@ -104,7 +107,7 @@ export class GalleryControls {
       const start = this.drag;
       this.drag = null;
       if (!start) return;
-      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 8) {
+      if (Math.hypot(e.clientX - start.ox, e.clientY - start.oy) < 8) {
         this.tap(e.clientX, e.clientY, canvas, start.dist);
       }
     });
@@ -130,7 +133,14 @@ export class GalleryControls {
       void this.ensurePhysics();
     } else {
       document.documentElement.style.overflow = '';
-      // resynchronise this.pos depuis la caméra (le mode guidé repart du point courant)
+      // Retour au guidé : on **reprojette la position courante sur le parcours** avant de
+      // relire le scroll. Sans cela, `readScroll()` repartait du `scrollY` figé et la
+      // caméra sautait à l'entrée (73 m perdus en quittant la visite libre au fond).
+      const z = this.camera.position.z;
+      const t = clamp((this.pathZFirst - z) / (this.pathZFirst - this.pathZLast), 0, 1);
+      const spacer = document.getElementById('scroll-spacer');
+      const max = spacer ? spacer.offsetHeight - window.innerHeight : 0;
+      if (max > 0) window.scrollTo({ top: t * max, behavior: 'auto' });
       this.pos.copy(this.camera.position);
       this.readScroll();
     }

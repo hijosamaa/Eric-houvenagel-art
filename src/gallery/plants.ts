@@ -695,7 +695,7 @@ export function plantPlacements(layout: Layout): PlantPlacement[] {
   const species: PlantSpecies[] = ['olivier', 'ficus', 'monstera', 'sansevieria', 'fougere', 'eucalyptus', 'pothos'];
   const insetX = HALL_WIDTH / 2 - 1.35;
   portalPositions(layout).forEach((portal, i) => {
-    const z = portal.z - 0.62; // côté salle (z décroît vers le fond)
+    const z = portal.z - 0.95; // côté salle (z décroît vers le fond)
     const a = species[(i * 2) % species.length];
     const b = species[(i * 2 + 3) % species.length];
     push({ x: -insetX, z, species: a, pot: i % 2 === 0 ? 'terracotta' : 'pierre', scale: 0.98 + (i % 3) * 0.06 });

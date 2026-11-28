@@ -25,6 +25,12 @@ export const Z_START = 6.4;
 /** Longueur du sas d'entrée. */
 export const LOBBY_LEN = 5.2;
 export const Z_END_MARGIN = 4.2;
+/**
+ * Retrait entre la première (ou dernière) œuvre d'une salle et le mur de seuil.
+ * Avec 1,4 m (le demi-pas), une plante d'angle se retrouvait devant le cadre : il faut
+ * la place d'un trumeau meublé, soit 2,7 m du centre de la toile au mur.
+ */
+export const ROOM_MARGIN = 1.3;
 export const VIEW_DIST = 3.3;
 
 /** Marge caméra au-delà des extrémités. */
@@ -82,6 +88,27 @@ export interface Layout {
 
 export function hallBounds(layout: Layout): { zMin: number; zMax: number } {
   return { zMin: layout.zBack, zMax: layout.zFront };
+}
+
+/**
+ * Salle contenant un z donné. **Une seule source de vérité** pour le cartel, le plan, les
+ * chips et les touches 1-9 : avec un test `zMin ± 1,2`, deux salles voisines répondaient
+ * « oui » à la fois et `findIndex` renvoyait la mauvaise (on annonçait « Marines » en
+ * arrivant dans « Figures »).
+ */
+export function zoneAt(layout: Layout, z: number): number {
+  const zs = layout.zones;
+  for (let i = 0; i < zs.length; i++) {
+    const zMin = Math.min(zs[i].zMin, zs[i].zMax);
+    const zMax = Math.max(zs[i].zMin, zs[i].zMax);
+    if (z <= zMax && z >= zMin) return i;
+  }
+  return z < zs[zs.length - 1].zMin ? zs.length - 1 : 0;
+}
+
+/** Index des salles d'accrochage (le sas n'en est pas une) — pour la numérotation. */
+export function roomZones(layout: Layout): Zone[] {
+  return layout.zones.filter((z) => !z.lobby);
 }
 
 /** Position x de la caméra guidée pour un z donné : elle se décale vers le mur de l'œuvre courante. */
@@ -241,7 +268,7 @@ export function computeLayout(data: GalleryData, _viewDist = VIEW_DIST): Layout 
   zones.push({
     id: '__sas',
     name: 'Entrée',
-    zMin: zFirstWork + SLOT_SPACING / 2,
+    zMin: zFirstWork + SLOT_SPACING / 2 + ROOM_MARGIN,
     zMax: zFront,
     lobby: true,
     shell: LOBBY_SHELL,
@@ -256,11 +283,21 @@ export function computeLayout(data: GalleryData, _viewDist = VIEW_DIST): Layout 
     zones.push({
       id: room.id,
       name: room.name,
-      zMin: Math.min(...zs) - SLOT_SPACING / 2,
-      zMax: Math.max(...zs) + SLOT_SPACING / 2,
+      zMin: Math.min(...zs) - SLOT_SPACING / 2 - ROOM_MARGIN,
+      zMax: Math.max(...zs) + SLOT_SPACING / 2 + ROOM_MARGIN,
       shell,
     });
   });
+
+  // Zones **disjointes** : elles se partagent la frontière exacte du mur de seuil, de
+  // sorte qu'un z n'appartienne qu'à une seule salle.
+  for (let i = 0; i < zones.length - 1; i++) {
+    const a = zones[i];
+    const b = zones[i + 1];
+    const cut = (Math.min(a.zMin, a.zMax) + Math.max(b.zMin, b.zMax)) / 2;
+    a.zMin = cut;
+    b.zMax = cut;
+  }
 
   return { zEnd: zBack, pathX: 0, placed, zones, zFront, zBack };
 }
