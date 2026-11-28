@@ -167,14 +167,18 @@ function materials(): NonNullable<typeof matCache> {
   // donc caisse + doucine tiennent en UN draw call. envMapIntensity haut pour compenser
   // scene.environmentIntensity = 0,5 (sinon l'or paraît plastique).
   const gilt = new THREE.MeshPhysicalMaterial({
-    map: giltTexture(8),
+    // La dorure ne prend PAS l'asset en albédo : `gilt` est une feuille froissée dont les
+    // plis, répétés sur une moulure de 70 mm, dessinaient des chevrons réguliers (le
+    // « ruban rayé »). En `roughnessMap` les mêmes plis ne modulent que le reflet : la
+    // moulure redevient de l'or brossé, avec le grain de la feuille.
+    roughnessMap: giltTexture(8),
     vertexColors: true,
     // 0,78 plutôt que 0,88 : à 0,88 le métal ne renvoyait que l'environnement (IBL
     // chaud et flou) et la dorure perdait sa couleur propre — elle lisait bronze/olive
     // dès que l'angle changeait. À 0,78 il reste de l'or diffus.
-    color: 0xf4e6c8,
-    roughness: 0.34,
-    metalness: 0.78,
+    color: 0xd9ae62,
+    roughness: 0.4,
+    metalness: 0.82,
     clearcoat: 0.16,
     clearcoatRoughness: 0.35,
     envMapIntensity: 1.5,

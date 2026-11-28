@@ -28,8 +28,15 @@ export interface SceneContext {
   plants: PlantsBuild;
 }
 
-/** Échelle de texture du plâtre : 1 tuile = 6,8 m **dans les deux directions**. */
-const PLASTER_TILE = 6.8;
+/**
+ * Échelle de texture du plâtre : 1 tuile = **3,4 m** dans les deux directions.
+ *
+ * C'était 6,8 m, soit 300 px de texture par mètre : à 1 m d'un mur (≈800 px/m à l'écran)
+ * la chaux était agrandie 2,7× et lisait comme une lavasse floue. À 3,4 m on est à
+ * 600 px/m, la trame de badigeon garde sa finesse sans montrer la tuile (répétition en
+ * miroir, `mirror: true` dans plasterTexture).
+ */
+const PLASTER_TILE = 3.4;
 /**
  * Dimensions (m) de la tuile de parquet, renseignées par `floorTextures()`.
  * Le sol n'a plus besoin d'être découpé en 56 lames : l'asset porte les lames, on ne
@@ -117,6 +124,8 @@ function plasterTexture(aniso: number, coarse = false): THREE.Texture {
     // grade : l'asset est une chaux trowelée dont les coups de taloche sont très
     // contrastés ; adoucis, ils deviennent des nuances de badigeon.
     grade: 'saturate(0.8) brightness(1.06) contrast(0.78)',
+    // miroir : sur 3,4 m de tuile, une répétition simple aligne les taloches en colonnes
+    mirror: true,
   }, '#ece5d8');
 }
 

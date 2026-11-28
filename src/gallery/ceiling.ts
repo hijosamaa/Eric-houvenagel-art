@@ -82,9 +82,10 @@ function slabWithWell(
   shape.holes.push(hole);
   const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false, curveSegments: 1 });
   geo.rotateX(-Math.PI / 2);
-  // UV de WorldUVGenerator exprimées en mètres → tuile de plafond de 6,4 m.
+  // UV de WorldUVGenerator exprimées en mètres → tuile de plafond de 3,4 m (même échelle
+  // que les murs : une dalle et un mur voisins ne doivent pas trahir deux échelles).
   const uv = geo.attributes.uv as THREE.BufferAttribute;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 6.4, uv.getY(i) / 6.4);
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3.4, uv.getY(i) / 3.4);
   uv.needsUpdate = true;
   return geo;
 }

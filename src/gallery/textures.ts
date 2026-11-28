@@ -22,7 +22,13 @@ import * as THREE from 'three';
  */
 
 export const TEX_ASSETS = `${import.meta.env.BASE_URL}assets/textures/`;
-export const TEX_AI = `${import.meta.env.BASE_URL}tex/`;
+/**
+ * Dossier des textures générées (Nano Banana & co). **Source de vérité unique** :
+ * `public/assets/textures/ai/` — chaque asset y existe en pleine résolution (`.webp` et
+ * `.jpg`, 2048²) et en variante `-1024` (mobile). Un ancien doublon `public/tex/`
+ * servait les mêmes 21 Mo une seconde fois : supprimé.
+ */
+export const TEX_AI = `${import.meta.env.BASE_URL}assets/textures/ai/`;
 
 export interface TexOpts {
   repeat?: [number, number];
@@ -127,11 +133,17 @@ export function precalcTexture(
   // Liste courte et ordonnée par qualité : source pleine taille d'abord (elle est
   // recadrée côté client à `maxSize`), variante réduite en repli, puis textures
   // procédurales précalculées du build. Chaque candidat manquant coûte une requête.
+  // Pleine résolution d'abord (les assets sont en 2048² : c'est la HD demandée, et le
+  // clamp `maxSize` ne fait que la réduire sur mobile). WebP avant JPEG à taille égale :
+  // mêmes pixels, 1 Mo au lieu de 1,2. La variante `-1024` n'est essayée qu'en repli, ou
+  // **en premier** si la cible est mobile — alors elle évite de décoder une 2048² juste
+  // pour la réduire.
+  const small = maxSize <= 1024;
+  const full = [`${TEX_AI}${name}.webp`, `${TEX_AI}${name}.jpg`];
+  const half = [`${TEX_AI}${name}-1024.webp`, `${TEX_AI}${name}-1024.jpg`];
   const candidates = [
-    `${TEX_AI}${name}.jpg`,
-    `${TEX_AI}${name}.webp`,
-    `${TEX_AI}${name}-1024.jpg`,
-    `${TEX_AI}${name}-1024.webp`,
+    ...(small ? half : full),
+    ...(small ? full : half),
     `${TEX_ASSETS}${name}-${maxSize}.webp`,
     `${TEX_ASSETS}${name}.webp`,
   ];
