@@ -218,3 +218,58 @@ salles **115-138** (p05 46-61, p95 156-201). La dynamique est passée de 53 à ~
 - Les plantes restent des « stickers » (12 feuilles plates, pas d'AO) — pistes chiffrées dans
   `.vibe/audit-rendu/RAPPORT.md` §10.
 - Aucun fichier de `src/` n'est couvert par un test automatisé hors `probe.mjs` (géométrie).
+
+## Session « sas réduit, charpente apurée, chemin de caméra » (suite)
+
+### Le sas : 10,4 × 10,4 m et meublé
+
+12 m de côté le laissaient vide : on y traversait trois fois sans rien y voir. Il fait
+maintenant **10,4 m** (les salles 10,4 × 14), avec un **banc** contre le mur nord (décalé de
+2,6 m pour ne pas gêner la baie), **quatre plantes** d'angle et la console du mur du nom.
+Pourquoi pas moins : le mur du fond d'une salle porte deux toiles vues à 2,9 m ; sous
+10,2 m de large, deux cadres de 1,7 m se chevauchent.
+
+### La charpente : deux poutres, pas sept
+
+Chaque salle portait 2 poutres encadrant la verrière + 2 ou 3 traverses + un bandeau :
+six à sept pièces de bois sous une dalle de 10 m. Les **traverses sont supprimées**
+(`beams: 0`) ; il reste les deux poutres du puits de lumière et le bandeau de la trémie. La
+cimaise passe de 30 × 50 à **18 × 28 mm** : à 5 cm de haut, ce filet à 2,52 m se lisait comme
+une poutre en travers de chaque mur.
+
+### La « poutre » au-dessus des baies : une marche de couleur de sommet
+
+Chaque tronçon de mur calculait son dégradé vertical sur **sa propre** hauteur. Le linteau
+d'une baie (2,9 → 4,0 m) repartait donc à 0,99 quand le mur qu'il surmonte finissait à 1,04 :
+une marche de 0,05 sur toute la largeur, lue comme une poutre à mi-hauteur. Le dégradé est
+désormais indexé sur l'**altitude absolue** (`REF_H = 4,2`), donc continu d'un tronçon à
+l'autre.
+
+### Le chemin de la caméra : reculer, puis revenir
+
+Deux arrêts d'un même mur étaient reliés par une **droite** à 2,9 m du nu : la caméra
+glissait latéralement devant les toiles en pivotant, ce qui donne le tournis sur dix arrêts.
+Un sommet **reculé de 1,15 m dans la pièce** est intercalé entre deux toiles d'un même mur
+(cap à la bissectrice) : la caméra recule, tourne en gardant les deux toiles dans le champ,
+puis revient sur la suivante. Le congé de `smoothPath` en fait un arc — 130 m de parcours,
+paliers toujours exacts (30/30, écart 0,000 m).
+
+### Changement de salle : fondu, pas trajet
+
+Les pastilles de salle (et les touches 1-9) faisaient défiler 20 m de parcours en 400 ms,
+en traversant les murs. Elles posent maintenant la caméra devant la première toile **sous un
+fondu au papier** (`controls.snapToT` + voile de 170 ms/340 ms). Le mini-plan perd son cône
+de vision (sur 96 px de haut, il était plus gros que la pièce).
+
+### Textures : ménage et nouveaux assets
+
+`public/assets/textures/ai/` pesait 33 Mo pour 8 textures, chacune en quatre fichiers
+(`.webp`, `.jpg`, `-1024.webp`, `-1024.jpg`). Les JPEG ne servaient que de repli d'un temps
+où WebP n'était pas universel : ils sont supprimés, il ne reste que **`<nom>.webp` +
+`<nom>-1024.webp`** — 12 Mo. Les sources JPEG déposées pour conversion sont désormais
+`gitignore` et converties par `.vibe/shotkit/jpg2webp.mjs` (Chromium + canvas, qualité 0,86).
+
+Nouveaux assets branchés : **`plaster-lisse`** porte la couleur des murs (l'ancien
+`plaster`, taloché, ne sert plus qu'au relief — ses coups de taloche se lisaient comme des
+rayures à 1 m) ; `painted` (charpente), `oak` (mobilier) et `leaf` (végétation) sont pris
+automatiquement par les slots qui les attendaient.

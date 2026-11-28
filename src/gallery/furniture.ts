@@ -47,13 +47,25 @@ export interface BenchSpot {
  * parcours le contourne (le tracé passe à 1,1 m de la baie, le banc commence à 3 m).
  */
 export function benchPlacements(layout: Layout): BenchSpot[] {
-  return layout.rooms
+  const benches = layout.rooms
     .filter((r) => !r.lobby)
     .map((room) => ({
       x: (room.rect.x0 + room.rect.x1) / 2,
       z: (room.rect.z0 + room.rect.z1) / 2,
       alongX: room.inZ !== 0,
     }));
+  // Sas : un banc contre le mur du nord, **à côté** de la baie (le passage fait 2,6 m,
+  // le banc est décalé de 2,6 m sur la gauche). Il meuble le hall et sert vraiment —
+  // on s'y assoit face au mur du nom pendant que d'autres regardent.
+  const lobby = layout.rooms.find((r) => r.lobby);
+  if (lobby) {
+    benches.push({
+      x: -2.6,
+      z: lobby.rect.z0 + 0.62,
+      alongX: true,
+    });
+  }
+  return benches;
 }
 
 export interface PedestalSpot {

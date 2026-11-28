@@ -224,9 +224,9 @@ function floorTextures(aniso: number, coarse: boolean): { map: THREE.Texture; ro
     // grade : -45 % de saturation, +6 % de luminosité. Sans lui, le sol virait à
     // l'orange boueux dès qu'il recevait le soleil de la verrière.
     grade: 'saturate(0.3) brightness(1.06) contrast(1.0)',
-    // Miroir conservé : sans lui, la jointure de tuile se lit comme une bande sombre en
-    // travers du parquet (l'asset ne boucle pas parfaitement). La tuile est passée de
-    // 1,4 × 2,4 à 2,1 × 3,6 m, donc les paires inversées s'éloignent de 50 %.
+    // Miroir **oui** : sans lui, la tuile ne boucle pas et la jointure se lit comme une
+    // bande sombre en travers du parquet (mesuré : marche de 12 niveaux sur 6 px à
+    // z = 3,6 m). Les paires inversées qu'il fabrique sont moins visibles qu'une couture.
     mirror: true,
   }, '#8a6c46');
 
@@ -546,7 +546,11 @@ export function createScene(
   const spotPool = spots.pool;
 
   // ---- matériaux ----
-  const plasterTex = plasterTexture(aniso, opts.coarse);
+  // Chaux des murs : `plaster-lisse` (badigeon essuyé, que l'utilisateur a fourni) porte la
+  // couleur, et l'ancien `plaster` (taloché) ne sert plus qu'au relief — ses coups de
+  // taloche, en albédo, se lisaient comme des rayures à 1 m du mur.
+  const plasterTex = plasterTexture(aniso, opts.coarse, '', 'plaster-lisse');
+  const plasterBump = plasterTexture(Math.min(aniso, 8), opts.coarse, '', 'plaster');
   // La dalle a ses UV en tuiles de 3,4 m (voir ceiling.ts) : repeat 1.
   // Désaturée à 35 % : l'enduit crème, vu en sous-face sous un rebond chaud, tirait sur
   // le kraft ; un plafond peint lit gris-blanc, même dans une salle très chaude.
@@ -561,9 +565,10 @@ export function createScene(
     // Un blanc chaud de 1 %, pas plus : à 0xfff4e6 la chaux virait au beige kaki sur
     // toute la surface des murs (le lieu est déjà chaud par sa texture et son IBL).
     color: 0xfffdf8,
-    bumpMap: plasterTex,
-    // 3,5 mm : à 1,8 mm les taloches ne lisaient plus du tout à 2 m.
-    bumpScale: 0.0035,
+    bumpMap: plasterBump,
+    // 2,2 mm : le badigeon `plaster-lisse` est lisse, le relief ne doit être qu'un grain
+    // (3,5 mm était calibré sur les taloches, désormais reléguées au bump).
+    bumpScale: 0.0022,
     roughness: 0.94,
     envMapIntensity: 0.2,
     vertexColors: true,
@@ -705,7 +710,6 @@ export function createScene(
     d: number,
     dimU: number,
     y0 = 0,
-    yTop = h,
   ): THREE.BufferGeometry => {
     const g = new THREE.BoxGeometry(w, h, d);
     const uv = g.attributes.uv as THREE.BufferAttribute;
@@ -715,9 +719,15 @@ export function createScene(
     uv.needsUpdate = true;
     const pos = g.attributes.position as THREE.BufferAttribute;
     const col = new Float32Array(pos.count * 3);
-    const ref = Math.max(0.2, yTop);
+    // Référence **absolue** (hauteur maximale du bâti) et non `yTop` du tronçon : chaque
+    // tronçon calculait son propre dégradé, si bien que le linteau au-dessus d'une baie
+    // repartait de 0,99 quand le mur qu'il surmonte finissait à 1,04. Cette marche de
+    // 0,05 sur toute la largeur du mur se lisait comme une poutre à 2,9 m entre le
+    // plafond et le sol (signalé sur toutes les baies).
+    const REF_H = 4.2;
     for (let i = 0; i < pos.count; i++) {
-      const t = Math.min(1, Math.max(0, (pos.getY(i) + h / 2 + y0) / ref));
+      const yAbs = pos.getY(i) + h / 2 + y0;
+      const t = Math.min(1, Math.max(0, yAbs / REF_H));
       // 0,80 au sol → 1,04 sous la sablière, en courbe douce (approximation du ciel)
       const v = 0.8 + 0.24 * Math.pow(t, 0.75);
       col[i * 3] = v;
@@ -744,8 +754,8 @@ export function createScene(
     if (L < 0.02 || h < 0.02) continue;
     const g =
       w.dir === 'x'
-        ? wallGeo(L, h, WALL_T, L, w.y0, w.y1)
-        : wallGeo(WALL_T, h, L, L, w.y0, w.y1);
+        ? wallGeo(L, h, WALL_T, L, w.y0)
+        : wallGeo(WALL_T, h, L, L, w.y0);
     const px = w.dir === 'x' ? (w.from + w.to) / 2 : w.at;
     const pz = w.dir === 'x' ? w.at : (w.from + w.to) / 2;
     const mesh = add(g, plaster, px, w.y0 + h / 2, pz, { cast: true });
@@ -787,7 +797,9 @@ export function createScene(
 
         if (room.height > CIMAISE_Y + 0.3) {
           const cim = new THREE.Mesh(
-            extrudedPrism(chamferedSection(0.03, 0.05, 0.006), L, { tileV: 3 }),
+            // 18 × 28 mm et non 30 × 50 : à 50 mm de haut, la cimaise se lisait comme une
+            // poutre à 2,52 m sur toute la largeur du mur. C'est un filet, pas un bois.
+            extrudedPrism(chamferedSection(0.018, 0.028, 0.004), L, { tileV: 3 }),
             trim,
           );
           cim.rotation.y = rot;

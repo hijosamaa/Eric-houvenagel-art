@@ -271,7 +271,10 @@ async function boot(): Promise<void> {
     if (zone.lobby) {
       if (ui.lightboxIsOpen()) ui.closeLightbox();
       if (ui.indexIsOpen()) ui.closeIndex();
-      controls.scrollToT(0);
+      ui.veil(() => {
+        if (controls.mode === 'guided') controls.snapToT(0);
+        else window.scrollTo({ top: 0, behavior: 'auto' });
+      });
       return;
     }
     const first = layout.placed.find((p) => p.roomId === zone.id);
@@ -283,8 +286,13 @@ async function boot(): Promise<void> {
       ui.closePanel();
       panelWork = null;
     }
-    if (controls.mode === 'guided') controls.scrollToWork(first);
-    else controls.focusOn(first);
+    // Changement de salle : **fondu** plutôt que trajet. Faire défiler 20 m de parcours en
+    // 400 ms traversait les murs et donnait le tournis ; le fondu pose la caméra devant la
+    // première toile de la salle, sans mouvement.
+    ui.veil(() => {
+      if (controls.mode === 'guided') controls.snapToT(first.scrollT);
+      else controls.focusOn(first);
+    });
   }
 
   function progressT(): number {

@@ -263,6 +263,28 @@ export class GalleryControls {
     window.scrollTo({ top: clamp(u, 0, 1) * max, behavior: this.reduced ? 'auto' : 'smooth' });
   }
 
+  /**
+   * Téléportation **sèche** du parcours guidé (utilisée sous un fondu au changement de
+   * salle) : le scroll est repositionné sans animation et la caméra est posée directement
+   * sur la cible, sinon elle « rattrape » la position pendant 300 ms et l'on voit le
+   * trajet défiler derrière le voile — c'est exactement l'effet qu'on veut éviter en
+   * préférant un fondu au déplacement accéléré.
+   */
+  snapToT(u: number): void {
+    const t = clamp(u, 0, 1);
+    const spacer = document.getElementById('scroll-spacer');
+    const max = spacer ? spacer.offsetHeight - window.innerHeight : 0;
+    if (max > 0) window.scrollTo({ top: t * max, behavior: 'auto' });
+    this.t = t;
+    this.targetT = t;
+    const pose = this.layout.at(this.reduced ? t : this.dwell(t));
+    this.pos.set(pose.x, EYE_Y, pose.z);
+    this.camera.position.copy(this.pos);
+    this.viewYaw = pose.yaw;
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.set(0, this.viewYaw, 0);
+  }
+
   update(dt: number): void {
     // Pilote les tweens du groupe dédié (Group.update() sans argument = now()).
     this.tweenGroup.update();

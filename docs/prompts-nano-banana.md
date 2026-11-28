@@ -2,15 +2,18 @@
 
 La galerie charge les textures dans cet ordre de priorité (`src/gallery/textures.ts`, `precalcTexture`) :
 
-1. `public/assets/textures/ai/<name>.webp` ← **tes images IA (prioritaires)**
+1. `public/assets/textures/ai/<name>.webp` ← **tes images IA (prioritaires)** ; une seule
+   forme par texture (`<name>.webp` + `<name>-1024.webp`), les JPEG déposés sont convertis
+   puis supprimés (`.vibe/shotkit/jpg2webp.mjs`)
 2. `public/assets/textures/<name>.webp` (textures procédurales précalculées au build)
 3. générateur canvas 2D interne (fallback, toujours dispo)
 
 ## Comment faire (résumé)
 
-1. Génère l'image avec Nano Banana (ou autre), puis exporte en **WebP q85–90, max 2048 px** (1024 pour le lointain).
-2. Dépose le fichier dans `public/assets/textures/ai/` avec **exactement** le nom du slot :
-   `plaster.webp`, `floor.webp`, `ceiling.webp`, `beam.webp`, `metal.webp`, `rug.webp`, `gilt.webp`.
+1. Génère l'image avec Nano Banana (ou autre). Un **JPEG ou PNG 2048² suffit** : dépose-le tel
+   quel, il sera converti en WebP (2048 + 1024) puis supprimé.
+2. Nomme-le **exactement** comme le slot : `plaster`, `floor`, `ceiling`, `beam`, `metal`,
+   `rug`, `gilt`, `painted`, `oak`, `leaf`, `plaster-lisse` (+ `.jpg`/`.png`).
 3. Recharge la page : l'image IA est utilisée immédiatement (aucun rebuild nécessaire en dev ;
    en prod, `vite build` copie `public/` dans `dist/` automatiquement).
 4. Le dossier `ai/` est **versionné** (les `.webp` sont commités sur `main`, seuls les `.png/.jpg`
@@ -84,10 +87,10 @@ des exports à **1 600-2 000 px** pour un rendu réellement 4K sur écran Retina
 Et `baigneuse.jpg` est une **capture d'écran Instagram** (badge « 1/2 » en haut à droite,
 avatar rond en bas à gauche, tous deux incrustés dans l'image) : à refaire depuis l'original.
 
-## À demander maintenant (slots encore sans asset IA)
+## Slots désormais fournis (2025-11-28)
 
-Ces trois slots tournent aujourd'hui sur le générateur procédural : c'est correct, mais un
-asset IA les ferait passer au niveau des autres. Même convention de nom, même dossier.
+`plaster-lisse` (murs), `painted` (charpente), `oak` (mobilier), `leaf` (végétation) sont
+livrés et branchés. Ce qui reste sur le générateur procédural : **rien d'important**.
 
 ### `painted.webp` — bois peint de la charpente (2048, seamless)
 La structure du hall (poutres, dalles, passerelles) est **peinte blanc cassé** : le bois ne

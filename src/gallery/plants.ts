@@ -717,6 +717,10 @@ export function plantPlacements(layout: Layout): PlantPlacement[] {
       scale: 0.94 + (k % 3) * 0.05,
     });
     push({ x: near.x, z: near.z, species: species[(k + 5) % 7], pot: k % 2 ? 'zinc' : 'blanc', scale: 0.86 });
+    // Sas : les quatre angles sont dressés (c'est la pièce qu'on traverse trois fois).
+    if (room.lobby) {
+      push({ x: sorted[2].x, z: sorted[2].z, species: species[(k + 2) % 7], pot: 'zinc', scale: 0.9 });
+    }
     k++;
   }
 

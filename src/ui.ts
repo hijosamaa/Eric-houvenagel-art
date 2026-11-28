@@ -123,6 +123,8 @@ export interface UI {
   setLoader(ratio: number, done: boolean): void;
   /** Base sans œuvre : message explicite, commandes retirées. */
   setEmpty(message: string): void;
+  /** Fondu au papier, exécution de `during` sous le voile, retour. */
+  veil(during: () => void): void;
   hideIntro(): void;
   setFreeLabel(active: boolean): void;
 }
@@ -444,6 +446,14 @@ export function initUI(cb: UICallbacks, baseUrl: string): UI {
         ? 'Prêt. Bonne visite.'
         : `Chargement de la galerie… ${Math.round(ratio * 100)} %`;
       ($('btn-enter') as HTMLButtonElement).disabled = !done;
+    },
+    veil(during) {
+      const v = $('veil');
+      v.classList.add('on');
+      window.setTimeout(() => {
+        during();
+        window.setTimeout(() => v.classList.remove('on'), 140);
+      }, 180);
     },
     setEmpty(message) {
       // Base sans œuvre publiée : sans ce garde-fou, la barre restait à « Chargement de la

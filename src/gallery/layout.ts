@@ -43,16 +43,21 @@ export const WALL_Y = 1.55;
 /** Distance œil → toile, en mode guidé (m). */
 export const VIEW_DIST = 2.9;
 /**
- * Demi-côté du sas : 12 m de côté.
+ * Demi-côté du sas : **10,4 m de côté** (il faisait 12).
  *
  * C'est lui qui donne l'échelle de tout le plan : les salles font **exactement** la même
  * largeur que lui, de sorte que les quatre pièces se pavent sans se chevaucher. (Avec un
  * sas de 9,6 m et des salles de 15 m, les angles se superposaient de 2,7 m : une toile de
  * la salle Ouest traversait le mur de la salle Nord.)
+ *
+ * Pourquoi 10,4 et pas moins : le mur du fond d'une salle porte 2 toiles vues à 2,9 m ;
+ * il faut `ROOM_LAT ≥ 10,2` pour que deux cadres de 1,7 m ne se chevauchent pas. À 10,4
+ * la traversée du sas tombe sous 5 m et la pièce se meuble (banc, quatre plantes), à 12
+ * elle restait un hall vide.
  */
-export const SAS_HALF = 6;
+export const SAS_HALF = 5.2;
 /** Largeur intérieure d'une salle (m) — égale au côté du sas, par construction. */
-export const ROOM_LAT = 12;
+export const ROOM_LAT = 10.4;
 /** Profondeur intérieure d'une salle, depuis la baie (m). */
 export const ROOM_DEPTH = 14;
 /** Baie entre le sas et une salle (m). */
@@ -273,6 +278,15 @@ interface Slot {
 }
 
 /** Ordre de visite : nord, est, ouest, sud (sens des aiguilles, sas au centre). */
+/**
+ * Poutres transversales : **zéro**, volontairement.
+ *
+ * Chaque salle portait 2 poutres qui encadrent la verrière + 2 ou 3 traverses sous la
+ * dalle + un bandeau peint autour de la trémie : six à sept pièces de bois au-dessus
+ * d'une pièce de 10 m, vues d'en bas, et le plafond devenait plus occupé que les murs.
+ * Il ne reste que les deux poutres qui bordent le puits de lumière et le bandeau de la
+ * trémie — la charpente se lit, elle ne meuble plus.
+ */
 const SLOTS: Slot[] = [
   { inX: 0, inZ: -1 },
   { inX: 1, inZ: 0 },
@@ -282,12 +296,12 @@ const SLOTS: Slot[] = [
 
 const SHELLS: RoomShell[] = [
   // Marines : la grande salle, verrière large, plafond haut.
-  { height: 4.2, skyW: 3.6, skyL: 8.0, beams: 3 },
-  // Figures : plus basse, verrière plus étroite, deux poutres.
-  { height: 3.55, skyW: 3.0, skyL: 7.0, beams: 2 },
+  { height: 4.2, skyW: 3.6, skyL: 8.0, beams: 0 },
+  // Figures : plus basse, verrière plus étroite.
+  { height: 3.55, skyW: 3.0, skyL: 7.0, beams: 0 },
   // Abstractions : la plus basse et la plus resserrée.
-  { height: 3.2, skyW: 2.4, skyL: 6.0, beams: 2 },
-  { height: 3.8, skyW: 3.2, skyL: 7.4, beams: 3 },
+  { height: 3.2, skyW: 2.4, skyL: 6.0, beams: 0 },
+  { height: 3.8, skyW: 3.2, skyL: 7.4, beams: 0 },
 ];
 
 const LOBBY_SHELL: RoomShell = { height: LOBBY_H, skyW: 2.6, skyL: 2.6, beams: 0 };
@@ -571,7 +585,7 @@ export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
     };
     const vAt = (n: number, i: number): number => {
       if (n <= 1) return 0;
-      const lim = width / 2 - viewDist - 1.0;
+      const lim = width / 2 - viewDist - 0.8;
       const sp = Math.min(3.2, (lim * 2) / (n - 1));
       slotW = sp;
       const span = sp * (n - 1);
@@ -624,8 +638,39 @@ export function computeLayout(data: GalleryData, viewDist = VIEW_DIST): Layout {
   const endZ = nRooms < 4 ? SAS_HALF - 3.4 : 0;
   pathRaw.push({ x: 0, z: endZ, yaw: Math.PI, s: 0 });
 
+  // ---- recul entre deux toiles d'un même mur ----
+  //
+  // Les deux arrêts d'un même mur étaient reliés par une droite à 2,9 m du nu : la caméra
+  // glissait latéralement devant les toiles en pivotant, ce qui donne le tournis sur dix
+  // arrêts d'affilée. On intercale un sommet **reculé** dans la pièce : la caméra recule,
+  // tourne sur place en gardant les deux toiles dans le champ, puis revient sur la
+  // suivante. Le rayon du congé (voir `smoothPath`) transforme l'aller-retour en arc.
+  const walked: PathNode[] = [];
+  for (let i = 0; i < pathRaw.length; i++) {
+    const a = pathRaw[i];
+    walked.push(a);
+    const b = pathRaw[i + 1];
+    if (!b || a.work === undefined || b.work === undefined) continue;
+    const pa = placed[a.work];
+    const pb = placed[b.work];
+    if (!pa || !pb) continue;
+    // même salle, même mur (même normale), et assez d'écart pour valoir un recul
+    if (pa.roomId !== pb.roomId) continue;
+    if (Math.abs(pa.nx - pb.nx) > 1e-6 || Math.abs(pa.nz - pb.nz) > 1e-6) continue;
+    const gap = Math.hypot(b.x - a.x, b.z - a.z);
+    if (gap < 1.6) continue;
+    const back = Math.min(1.15, gap * 0.42);
+    walked.push({
+      x: (a.x + b.x) / 2 + pa.nx * back,
+      z: (a.z + b.z) / 2 + pa.nz * back,
+      // cap à la bissectrice : le panorama passe d'une toile à l'autre sans détour
+      yaw: a.yaw + shortest(a.yaw, b.yaw) * 0.5,
+      s: 0,
+    });
+  }
+
   // ---- parcours : congés + caps ----
-  const path = smoothPath(pathRaw);
+  const path = smoothPath(walked);
 
   // paliers de scroll : position curviligne de chaque arrêt, normalisée
   const total = Math.max(1e-6, path[path.length - 1].s);

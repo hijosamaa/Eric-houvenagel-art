@@ -1,6 +1,10 @@
-# Textures IA versionnées (publiées sur main) :
-# ne PAS remettre "*" ici, les .webp/.jpg doivent être commités.
-# Ignorer uniquement les sources brutes déposées pour conversion (PNG) et les temporaires.
+# Textures IA versionnées (publiées sur main).
+#
+# Une seule forme par texture : <nom>.webp (2048²) + <nom>-1024.webp (mobile).
+# Les sources JPEG/PNG déposées pour conversion ne sont PAS versionnées : elles sont
+# converties par scripts/tex-webp.mjs puis supprimées (sinon chaque asset pèse 4 fichiers).
 *.png
+*.jpg
+*.jpeg
 *.tmp
 *.DS_Store

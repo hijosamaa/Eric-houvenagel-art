@@ -319,13 +319,16 @@ body.cursor-view #scene:active {
      laisse la scène « respirer » sur les 20 premiers pixels. */
 }
 
+/* Le rail n'a plus de piste : à 1 px de `--line` posé sur la scène (le dégradé du cartel
+   ne commence qu'à 34 %), il se lisait comme un cheveu en travers du tableau. Seul le
+   remplissage, en accent, reste — il indique l'avancement sans dessiner de cadre. */
 #cartel-progress {
-  height: 1px;
-  background: var(--line);
+  height: 2px;
+  background: transparent;
   margin-bottom: var(--s5);
 }
 #progress-fill {
-  height: 1px;
+  height: 2px;
   width: 0;
   background: var(--accent);
   transition: width var(--d-fast) linear;
@@ -1150,6 +1153,21 @@ body.cursor-view #scene:active {
 /* ----------------------------------------------------------------------------
    Bandeau d'erreur / message — filet + texte, jamais une pilule noire
    -------------------------------------------------------------------------- */
+/* Voile de changement de salle : on ne traverse plus le mur en accéléré. */
+#veil {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 340ms var(--e-inout);
+}
+#veil.on {
+  opacity: 1;
+  transition-duration: 170ms;
+}
+
 #toast {
   position: absolute;
   top: var(--s5);
@@ -1257,7 +1275,22 @@ body.cursor-view #scene:active {
     padding: 0 10px;
     justify-content: center;
   }
-  #toast {
+  /* Voile de changement de salle : on ne traverse plus le mur en accéléré. */
+#veil {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 340ms var(--e-inout);
+}
+#veil.on {
+  opacity: 1;
+  transition-duration: 170ms;
+}
+
+#toast {
     top: 86px;
     max-width: min(86vw, 360px);
   }

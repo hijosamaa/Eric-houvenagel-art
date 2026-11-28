@@ -126,12 +126,11 @@ export class Minimap {
     const cam = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     cam.setAttribute('class', 'mm-cam');
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    dot.setAttribute('r', '0.55');
+    dot.setAttribute('r', '0.42');
     cam.appendChild(dot);
-    const cone = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    cone.setAttribute('d', 'M 0 -0.7 L 2.2 -3.1 A 3.6 3.6 0 0 0 -2.2 -3.1 Z');
-    cone.setAttribute('class', 'mm-cone');
-    cam.appendChild(cone);
+    // Le cône de vision a été retiré : sur un plan de 96 px de haut, il dessinait une
+    // flèche plus grosse que la pièce où l'on se trouve et brouillait la lecture des
+    // murs. Il reste un point, qui suffit à situer la caméra.
     svg.appendChild(cam);
     this.camMark = cam;
 
