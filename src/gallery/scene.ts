@@ -12,9 +12,9 @@ import { buildFurniture, furnitureMaterials } from './furniture';
 
 import { buildPlants, plantMaterials, type PlantsBuild } from './plants';
 
-import { buildCeiling } from './ceiling';
+import { buildCeilings } from './ceiling';
 
-import { chamferedSection, extrudedPrism, timberX, timberY } from './wood';
+import { chamferedSection, extrudedPrism } from './wood';
 
 export interface SceneContext {
   renderer: THREE.WebGLRenderer;
@@ -46,6 +46,8 @@ const PLASTER_TILE = 3.4;
 const FLOOR_TILE: [number, number] = [1.4, 2.4];
 /** Hauteur de la cimaise (filet d'accrochage au-dessus des toiles). */
 const CIMAISE_Y = 2.52;
+/** Épaisseur des murs de seuil (m) — un vrai mur, pas une cloison de carton. */
+const WALL_T = 0.24;
 
 /**
  * Environnement d'éclairage **de la pièce**, pas d'un studio.
@@ -67,7 +69,7 @@ function buildEnvironmentScene(): THREE.Scene {
     new THREE.MeshBasicMaterial({ color: c, side: THREE.BackSide });
 
   // enveloppe : parois à l'albédo du plâtre (0,62 linéaire)
-  const shell = new THREE.Mesh(new THREE.BoxGeometry(18, 7, 44), lit(0x9d978c));
+  const shell = new THREE.Mesh(new THREE.BoxGeometry(18, 7, 44), lit(0xb0aaa0));
   shell.position.y = 2.4;
   env.add(shell);
 
@@ -238,28 +240,34 @@ function floorTextures(aniso: number, coarse: boolean): { map: THREE.Texture; ro
 }
 
 /** Plaque de salle en laiton, 512×128. */
+/**
+ * Texte de salle, **peint sur le mur** (graphisme de musée), pas une plaque de laiton.
+ *
+ * Une plaque métallique de 60 cm sur un trumeau de 80 cm, vue de biais, devenait une
+ * tache sombre illisible. Un lettrage fin, posé à hauteur de regard, se lit dans le
+ * mouvement et ne concurrence pas les œuvres.
+ */
 function plaqueTexture(text: string): THREE.CanvasTexture {
-  const w = 512;
-  const h = 128;
+  const w = 1024;
+  const h = 192;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const g = c.getContext('2d');
   if (!g) throw new Error('Contexte 2D indisponible');
-  const grad = g.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#a08f74');
-  grad.addColorStop(0.5, '#8f8069');
-  grad.addColorStop(1, '#7c6e59');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, w, h);
-  g.strokeStyle = 'rgba(92,74,40,0.75)';
-  g.lineWidth = 3;
-  g.strokeRect(7, 7, w - 14, h - 14);
-  g.fillStyle = '#40382c';
-  g.font = 'italic 600 44px Georgia, serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, w / 2, h / 2 + 2, w - 60);
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = 'rgba(46,44,40,0.82)';
+  g.textAlign = 'left';
+  g.textBaseline = 'alphabetic';
+  // numéro de salle au-dessus, nom en dessous
+  g.font = '500 30px Inter, system-ui, sans-serif';
+  g.letterSpacing = '10px';
+  g.fillText('SALLE', 4, 42);
+  g.font = 'italic 400 62px Georgia, serif';
+  g.letterSpacing = '1px';
+  g.fillText(text, 2, 128, w - 12);
+  g.fillStyle = 'rgba(46,44,40,0.35)';
+  g.fillRect(2, 150, 120, 2);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -480,7 +488,7 @@ export function createScene(
     roughness: 0.95,
     // La dalle ne voit aucune source directe (elle regarde le sol) : c'est l'IBL qui la
     // tient. Sans cela elle tombait dans un gris-brun sale au-dessus des toiles.
-    envMapIntensity: 1.0,
+    envMapIntensity: 1.35,
   });
   // Bois peint de la charpente et des portiques : le relief et l'ombre font le travail.
   const paintedTex = paintedWoodTexture(aniso, 1, texMax);
@@ -631,48 +639,59 @@ export function createScene(
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     return g;
   };
-  add(wallGeo(0.25, HALL_HEIGHT, len, len), plaster, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
-  add(wallGeo(0.25, HALL_HEIGHT, len, len), plaster, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
+  // Murs latéraux **par salle** : chaque salle a sa hauteur, donc les murs s'arrêtent à
+  // sa dalle et l'on voit les seuils. (Un mur continu de 4,15 m aurait laissé un vide
+  // au-dessus des salles basses.)
+  for (const zone of layout.zones) {
+    const z0 = Math.min(zone.zMin, zone.zMax);
+    const z1 = Math.max(zone.zMin, zone.zMax);
+    const zl = z1 - z0;
+    if (zl < 0.05) continue;
+    const zc = (z0 + z1) / 2;
+    const h = zone.shell.height;
+    add(wallGeo(0.25, h, zl, zl), plaster, -HALL_WIDTH / 2, h / 2, zc);
+    add(wallGeo(0.25, h, zl, zl), plaster, HALL_WIDTH / 2, h / 2, zc);
+  }
+  // murs d'about : entrée et fond
   add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, HALL_WIDTH + 0.5), plaster, 0, HALL_HEIGHT / 2, zMax);
   add(wallGeo(HALL_WIDTH + 0.5, HALL_HEIGHT, 0.25, HALL_WIDTH + 0.5), plaster, 0, HALL_HEIGHT / 2, zMin);
 
-  // ---- Charpente + verrière (ceiling.ts) ----
-  const ceiling = buildCeiling(layout, { painted, plaster: ceilMat, bronze }, opts.shadows);
+  // ---- Plafonds + verrières, salle par salle (ceiling.ts) ----
+  const ceiling = buildCeilings(layout, { painted, plaster: ceilMat, bronze }, opts.shadows);
   scene.add(ceiling.group);
 
-  // ---- Plinthes extrudées (profil réel, pas une boîte) ----
+  // ---- Plinthes + cimaise, découpées **par salle** (elles s'arrêtent aux seuils) ----
   const inner = HALL_WIDTH / 2 - 0.125;
   const skirtProfile: [number, number][] = [
     [0, 0], [0.045, 0], [0.045, 0.018], [0.022, 0.042], [0.036, 0.115], [0, 0.115],
   ];
-  const skirtGeo = moldingGeometry(skirtProfile, len);
-  const skirtR = new THREE.Mesh(skirtGeo, trim);
-  skirtR.rotation.y = Math.PI;
-  skirtR.position.set(inner, 0, zMax);
-  skirtR.receiveShadow = opts.shadows;
-  skirtR.name = 'plinthe';
-  scene.add(skirtR);
-  const skirtL = new THREE.Mesh(skirtGeo, trim);
-  skirtL.position.set(-inner, 0, zMin);
-  skirtL.receiveShadow = opts.shadows;
-  scene.add(skirtL);
+  for (const zone of layout.zones) {
+    const z0 = Math.min(zone.zMin, zone.zMax);
+    const z1 = Math.max(zone.zMin, zone.zMax);
+    const zl = z1 - z0;
+    if (zl < 0.3) continue;
+    const zc = (z0 + z1) / 2;
+    const skirtGeo = moldingGeometry(skirtProfile, zl);
+    const skirtR = new THREE.Mesh(skirtGeo, trim);
+    skirtR.rotation.y = Math.PI;
+    skirtR.position.set(inner, 0, z1);
+    skirtR.receiveShadow = opts.shadows;
+    skirtR.name = 'plinthe';
+    scene.add(skirtR);
+    const skirtL = new THREE.Mesh(skirtGeo, trim);
+    skirtL.position.set(-inner, 0, z0);
+    skirtL.receiveShadow = opts.shadows;
+    scene.add(skirtL);
 
-  // ---- Filet en creux sur le mur droit : une ligne d'ombre à 1,05 m suffit à donner
-  // une échelle au grand aplomb qui fait face aux toiles (sans le boiserie-à-colonnes
-  // de la version précédente). Deux petits plats encadrent la gorge.
-  {
-    const grooveY = 1.05;
-    const x = HALL_WIDTH / 2 - 0.125;
-    const g = extrudedPrism(chamferedSection(0.016, 0.03, 0.003), len, { tileV: 3 });
-    const m = add(g, trim, x - 0.008, grooveY, cz);
-    m.name = 'filet-mur-droit';
-  }
-
-  // ---- Cimaise (filet d'accrochage) sur les deux longs murs ----
-  for (const sx of [-1, 1]) {
-    const g = extrudedPrism(chamferedSection(0.03, 0.05, 0.006), len, { tileV: 3 });
-    const m = add(g, trim, sx * (HALL_WIDTH / 2 - 0.125), CIMAISE_Y, cz);
-    m.name = 'cimaise';
+    // cimaise : le filet d'accrochage reste à 2,52 m dans toutes les salles (une ligne
+    // continue guide l'œil d'une salle à l'autre), mais s'arrête à chaque seuil.
+    if (zone.shell.height > CIMAISE_Y + 0.35) {
+      for (const sx of [-1, 1]) {
+        const g = extrudedPrism(chamferedSection(0.03, 0.05, 0.006), zl, { tileV: 3 });
+        const m = add(g, trim, sx * inner, CIMAISE_Y, zc);
+        m.name = 'cimaise';
+      }
+    }
   }
 
   // ---- Mobilier ----
@@ -722,47 +741,64 @@ export function createScene(
     scene.add(panel);
   }
 
-  // ---- Portiques entre salles (bois peint) + plaque laiton ----
+  // ---- Murs de seuil : le passage d'une salle à l'autre est percé dans un vrai mur,
+  // pas encadré par deux piluliers. C'est ce qui supprime le « portique » qui faisait
+  // chargé, et cela donne des seuils francs entre des plafonds de hauteurs différentes.
   const portals = portalPositions(layout);
-  const pierX = HALL_WIDTH / 2 - 0.3;
   for (const portal of portals) {
     const z = portal.z;
-    // piliers : fût chanfreiné + base en retrait (le pilier « pose » sur le sol)
+    const wallH = portal.height;
+    const half = portal.openingHalf;
+    const jambW = HALL_WIDTH / 2 - half;
     for (const sx of [-1, 1]) {
-      const base = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.4), painted);
-      base.position.set(sx * pierX, 0.045, z);
-      base.receiveShadow = opts.shadows;
-      scene.add(base);
-      const shaft = new THREE.Mesh(timberY({ length: HALL_HEIGHT - 0.09, width: 0.34, height: 0.34, chamfer: 0.014 }), painted);
-      shaft.position.set(sx * pierX, 0.09, z);
-      shaft.castShadow = opts.shadows;
-      shaft.receiveShadow = opts.shadows;
-      scene.add(shaft);
+      // `wallGeo` (et pas BoxGeometry) : le matériau d'enduit est en `vertexColors`, et
+      // une boîte nue sans attribut `color` sortait NOIRE.
+      const jamb = add(
+        wallGeo(jambW, portal.openingH, WALL_T, jambW),
+        plaster,
+        sx * (half + jambW / 2),
+        portal.openingH / 2,
+        z,
+        { cast: true },
+      );
+      jamb.name = 'seuil-jamb';
+      jamb.rotation.y = 0;
+      // nez de cloison peint : la tranche du mur, peinte, qui accroche la lumière
+      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.03, portal.openingH, 0.05), trim);
+      nose.position.set(sx * (half + 0.015), portal.openingH / 2, z + WALL_T / 2 + 0.02);
+      scene.add(nose);
     }
-    // linteau
-    const lintel = new THREE.Mesh(
-      timberX({ length: HALL_WIDTH - 0.6, width: 0.34, height: 0.45, chamfer: 0.016 }),
-      painted,
+    // linteau : du haut du passage jusqu'à la salle la plus haute
+    const lintelH = wallH - portal.openingH;
+    const lintel = add(
+      wallGeo(half * 2, lintelH, WALL_T, half * 2),
+      plaster,
+      0,
+      portal.openingH + lintelH / 2,
+      z,
+      { cast: true },
     );
-    lintel.position.set(0, HALL_HEIGHT - 0.225, z);
-    lintel.castShadow = opts.shadows;
-    lintel.receiveShadow = opts.shadows;
-    scene.add(lintel);
+    lintel.name = 'seuil-linteau';
 
-    const zone = portal.zoneIndex >= 0 ? layout.zones[portal.zoneIndex] : undefined;
-    const plaque = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.15, 0.288),
-      new THREE.MeshStandardMaterial({
-        map: plaqueTexture(zone?.name ?? ''),
-        roughness: 0.35,
-        metalness: 0.6,
-        envMapIntensity: 0.9,
-      }),
-    );
-    plaque.position.set(0, HALL_HEIGHT - 0.225, z + 0.172);
-    plaque.userData.zoneIndex = portal.zoneIndex;
-    plaque.name = 'plaque';
-    scene.add(plaque);
+    // Plaque de salle : sur le mur, à hauteur de regard, à droite du passage — plus
+    // jamais sur une poutre (c'est ce qui « faisait moche »).
+    const zone = layout.zones[portal.zoneIndex];
+    if (zone) {
+      const plaque = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.9, 0.169),
+        new THREE.MeshStandardMaterial({
+          map: plaqueTexture(zone.name),
+          transparent: true,
+          roughness: 0.9,
+          envMapIntensity: 0.1,
+          depthWrite: false,
+        }),
+      );
+      plaque.position.set(half + 0.55, 1.46, z + WALL_T / 2 + 0.004);
+      plaque.userData.zoneIndex = portal.zoneIndex;
+      plaque.name = 'plaque';
+      scene.add(plaque);
+    }
   }
 
   return { renderer, scene, camera, sun, spotPool, spots, plants };

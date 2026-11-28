@@ -4,7 +4,6 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { HALL_WIDTH, hallBounds, portalPositions, type Layout } from './layout';
 
-import { benchPositions } from './furniture';
 
 import { leafTexture } from './textures';
 
@@ -678,42 +677,38 @@ export function plantMaterials(aniso: number): PlantMaterials {
  */
 export function plantPlacements(layout: Layout): PlantPlacement[] {
   const { zMin, zMax } = hallBounds(layout);
-  const wallX = HALL_WIDTH / 2 - 0.62;
   const out: PlantPlacement[] = [];
   const push = (p: Omit<PlantPlacement, 'rot' | 'scale'> & { scale?: number; rot?: number }): void => {
     const r = mulberry32(hash2(p.x, p.z));
     out.push({ rot: r() * Math.PI * 2, scale: p.scale ?? 1, ...p });
   };
 
-  // portiques : un olivier + un ficus de part et d'autre, en retrait du passage
-  const species: PlantSpecies[] = ['olivier', 'ficus', 'monstera', 'sansevieria'];
+  /**
+   * Règle de placement : **jamais devant une toile**.
+   *
+   * Les œuvres occupent les deux murs tous les 2,8 m ; il ne reste de mur libre que les
+   * **retours de seuil** (les murs transversaux, de part et d'autre du passage). C'est
+   * donc là que vivent les plantes : à 2,9 m de l'axe et à 0,8 m du seuil, elles
+   * encadrent les portes sans jamais masquer un cadre. (Avant, elles étaient collées aux
+   * murs latéraux : un ficus se plantait devant une aquarelle.)
+   */
+  const species: PlantSpecies[] = ['olivier', 'ficus', 'monstera', 'sansevieria', 'fougere', 'eucalyptus', 'pothos'];
+  const insetX = HALL_WIDTH / 2 - 1.35;
   portalPositions(layout).forEach((portal, i) => {
-    push({ x: wallX, z: portal.z + 1.35, species: species[i % 2], pot: 'terracotta', scale: 1.02 });
-    push({ x: wallX, z: portal.z - 1.35, species: species[(i + 1) % 2], pot: 'pierre', scale: 0.94 });
+    const z = portal.z - 0.62; // côté salle (z décroît vers le fond)
+    const a = species[(i * 2) % species.length];
+    const b = species[(i * 2 + 3) % species.length];
+    push({ x: -insetX, z, species: a, pot: i % 2 === 0 ? 'terracotta' : 'pierre', scale: 0.98 + (i % 3) * 0.06 });
+    push({ x: insetX, z: z - 0.35, species: b, pot: i % 2 === 0 ? 'pierre' : 'terracotta', scale: 0.92 + (i % 4) * 0.05 });
   });
 
-  // entrée du hall : un grand olivier à droite, une fougère sur socle plus loin
-  push({ x: wallX, z: zMax - 2.1, species: 'olivier', pot: 'pierre', scale: 1.12 });
-  push({ x: wallX - 0.1, z: zMax - 5.4, species: 'fougere', pot: 'blanc', scale: 1.05 });
+  // entrée : deux plantes qui accueillent, dans les angles du sas
+  push({ x: -insetX - 0.35, z: zMax - 0.8, species: 'olivier', pot: 'pierre', scale: 1.1 });
+  push({ x: insetX + 0.35, z: zMax - 0.8, species: 'fougere', pot: 'blanc', scale: 1.02 });
 
-  // mur du fond : eucalyptus dans un vase haut + sansevieria
-  push({ x: -1.65, z: zMin + 0.75, species: 'eucalyptus', pot: 'zinc', scale: 1.06 });
-  push({ x: 1.9, z: zMin + 0.62, species: 'sansevieria', pot: 'terracotta', scale: 1.0 });
-
-  // rythme le long du mur droit, entre les bancs (jamais dans un banc : ±1,7 m)
-  const span = zMax - zMin;
-  const benches = benchPositions(layout);
-  const nMid = Math.max(1, Math.round(span / 11));
-  for (let i = 1; i <= nMid; i++) {
-    let z = zMax - (span * i) / (nMid + 1);
-    // décale l'emplacement hors de l'emprise d'un banc (le banc fait 1,86 m de long)
-    for (const bz of benches) {
-      if (Math.abs(bz - z) < 1.75) z = bz + (z >= bz ? 1.85 : -1.85);
-    }
-    if (z > zMax - 0.6 || z < zMin + 0.8) continue;
-    const sp = species[i % species.length];
-    push({ x: wallX, z, species: sp, pot: i % 3 === 0 ? 'blanc' : 'terracotta', scale: 0.9 + (i % 4) * 0.05 });
-  }
+  // mur du fond : un eucalyptus haut dans un bac + une sansevieria
+  push({ x: -1.9, z: zMin + 0.7, species: 'eucalyptus', pot: 'zinc', scale: 1.1 });
+  push({ x: 2.1, z: zMin + 0.62, species: 'sansevieria', pot: 'terracotta', scale: 1.0 });
 
   // console du mur du fond : deux petites plantes sur le plateau (pas de collider)
   out.push({ x: -0.52, z: zMin + 0.34, species: 'sansevieria', pot: 'blanc', scale: 0.42, rot: 0.7, elevated: true });

@@ -361,89 +361,93 @@ body.cursor-view #scene:active {
 }
 
 /* ----------------------------------------------------------------------------
-   Le rail : le plan du hall, sans carte. Le plan flottant a disparu, la
-   géométrie du hall reste lisible ici — une graduation par œuvre, une
-   étiquette de salle, un curseur de caméra.
+   Le mini-plan : des salles accolées à l'échelle de leur longueur réelle.
+   Une graduation par œuvre (cliquable), le nom de chaque salle, la salle
+   courante teintée, un curseur de caméra.
    -------------------------------------------------------------------------- */
 #minimap {
   grid-column: 2;
   position: relative;
-  height: 34px;
+  height: 44px;
   align-self: end;
-  margin-bottom: 0;
   touch-action: manipulation;
 }
 
-.mm-head,
-.mm-cap {
-  display: none;
+.mm-plan {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 100%;
 }
 
-.mm-track {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 20px;
-  height: 1px;
-  background: var(--line);
+/* une salle = une boîte, largeur ∝ longueur réelle */
+.mm-room {
+  position: relative;
+  flex: 0 0 var(--w, auto);
+  min-width: 0;
+  height: 32px;
+  margin-top: 6px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: transparent;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--d-fast), background var(--d-fast);
+}
+.mm-room.lobby {
+  border-style: dashed;
+  opacity: 0.7;
+}
+.mm-room:hover {
+  border-color: var(--accent);
+}
+.mm-room.active {
+  border-color: var(--accent);
 }
 
-.mm-fill {
+/* remplissage = progression dans la salle */
+.mm-room-fill {
   position: absolute;
-  left: 0;
-  top: 0;
-  height: 1px;
+  inset: 0 auto 0 0;
   width: var(--fill, 0%);
   background: var(--accent);
-  opacity: 0.5;
+  opacity: 0.14;
+  transition: width 420ms var(--e-out);
 }
 
-/* segment de salle : cible de clic élargie (15 px), le filet 1 px est un ::after */
-.mm-seg {
+.mm-room-name {
   position: absolute;
-  top: -7px;
-  height: 15px;
-  left: var(--z0, 0%);
-  width: calc(var(--z1, 100%) - var(--z0, 0%));
-  background: transparent;
-  cursor: pointer;
+  left: 7px;
+  bottom: 4px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  font-size: var(--t1);
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  transition: color var(--d-fast);
 }
-.mm-seg::after {
-  content: '';
-  position: absolute;
-  top: 7px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--ink);
-  opacity: 0.16;
-  transition: opacity var(--d-fast), background var(--d-fast);
-}
-.mm-seg:hover::after {
-  background: var(--accent);
-  opacity: 0.5;
+.mm-room.active .mm-room-name,
+.mm-room:hover .mm-room-name {
+  color: var(--accent);
 }
 
-.mm-cam {
-  position: absolute;
-  top: -6px;
-  left: var(--p, 0%);
-  width: 2px;
-  height: 12px;
-  transform: translateX(-1px);
-  background: var(--ink);
-}
-
+/* graduation d'œuvre : un simple trait sur la paroi */
 .mm-stop {
   position: absolute;
-  top: 0;
+  top: 4px;
   left: var(--p, 50%);
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 14px;
   padding: 0;
-  transform: translate(-50%, -50%);
   border: 0;
   background: transparent;
+  transform: translateX(-50%);
   font-size: 0;
   line-height: 0;
   cursor: pointer;
@@ -451,41 +455,43 @@ body.cursor-view #scene:active {
 .mm-stop::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: 1px;
   left: 50%;
   width: 1px;
-  height: 8px;
+  height: 5px;
   margin-left: -0.5px;
   background: var(--muted);
-  opacity: 0.55;
-  transition: height var(--d-fast) var(--e-out), top var(--d-fast) var(--e-out),
-    background var(--d-fast), opacity var(--d-fast);
+  opacity: 0.4;
+  transition: background var(--d-fast), opacity var(--d-fast), height var(--d-fast);
 }
-.mm-stop:hover::after {
-  top: 0;
-  height: 12px;
-  background: var(--ink);
-  opacity: 1;
-}
+.mm-stop:hover::after,
 .mm-stop.active::after {
-  top: -2px;
-  height: 14px;
   background: var(--accent);
   opacity: 1;
+  height: 8px;
 }
 
-/* l'étiquette de salle se déplace sur le rail, à l'aplomb de la zone */
-.mm-room {
+/* curseur de caméra : un trait plein sous le plan */
+.mm-cam {
   position: absolute;
-  top: 1px;
+  top: 0;
+  bottom: 0;
   left: var(--p, 0%);
-  font-size: var(--t1);
-  font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--accent);
-  white-space: nowrap;
-  transition: left var(--d-ui) var(--e-out), opacity var(--d-ui);
+  width: 1px;
+  background: var(--ink);
+  opacity: 0.75;
+  transform: translateX(-0.5px);
+  transition: left 120ms linear;
+}
+.mm-cam::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
 }
 
 #nav {
@@ -1210,9 +1216,17 @@ body.cursor-view #scene:active {
   .nav-link {
     display: none;
   }
+  .mm-room-name {
+    left: 4px;
+    font-size: 8px;
+    letter-spacing: 0.12em;
+  }
+  #minimap {
+    height: 34px;
+  }
   .mm-room {
-    font-size: 9px;
-    letter-spacing: 0.16em;
+    height: 26px;
+    margin-top: 4px;
   }
 
   #panel {

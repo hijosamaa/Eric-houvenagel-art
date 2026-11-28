@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-import { HALL_WIDTH, hallBounds, type Layout } from './layout';
+import { hallBounds, type Layout } from './layout';
 
 import { oakTexture } from './textures';
 
@@ -28,22 +28,27 @@ export interface ColliderBox {
   z: number;
 }
 
-/** Bancs le long du mur droit (les œuvres sont au mur gauche). */
-export const BENCH_X = HALL_WIDTH / 2 - 0.42;
-/** Socles au centre-droit du hall, un par salle. */
-export const PEDESTAL_X = 0.9;
+/**
+ * Bancs : **au centre de chaque salle**, pas contre un mur.
+ *
+ * Les œuvres occupent maintenant les deux murs : un banc latéral passait forcément
+ * devant une toile. Au centre, il sert exactement à ce pour quoi il est fait — s'asseoir
+ * et regarder dans les deux directions — et le parcours le contourne (la caméra se
+ * décale de ±1,0 m, le banc fait 0,44 m de profondeur).
+ */
+export const BENCH_X = 0;
+/** Socles : en retrait des toiles, près des seuils (jamais dans l'axe du regard). */
+export const PEDESTAL_X = 2.75;
 
 export function benchPositions(layout: Layout): number[] {
-  const { zMin, zMax } = hallBounds(layout);
-  const out: number[] = [];
-  for (let bz = zMin + 6; bz < zMax - 4; bz += 11) out.push(bz);
-  return out;
+  return layout.zones
+    .filter((z) => !z.lobby && z.zMax - z.zMin > 5)
+    .map((z) => (z.zMin + z.zMax) / 2);
 }
 
+/** Socles : deux par salle, du côté des seuils, décalés de l'axe. */
 export function pedestalPositions(layout: Layout): number[] {
-  return layout.zones
-    .filter((z) => z.zMax - z.zMin > 4)
-    .map((z) => (z.zMin + z.zMax) / 2);
+  return layout.zones.filter((z) => !z.lobby && z.zMax - z.zMin > 5).map((z) => z.zMin + 1.3);
 }
 
 /** Console + vase contre le mur du fond (zMin), centrée. */

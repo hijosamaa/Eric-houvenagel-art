@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Tween, Easing, Group } from '@tweenjs/tween.js';
 
-import { HALL_WIDTH, WALL_Y, Z_START, cameraPath, createDwellCurve, type Layout, type PlacedWork } from './layout';
+import { HALL_WIDTH, WALL_Y, cameraPath, createDwellCurve, pathXAt, portalPositions, type Layout, type PlacedWork } from './layout';
 
 import { createPhysics, type PhysicsWorld } from './physics';
 
@@ -46,7 +46,7 @@ export class GalleryControls {
   /** Courbe de « dwell » (layout.ts, rebuild.md §4) : arrêts devant chaque œuvre — repli linéaire si `reduced`. */
   private readonly dwell: (t: number) => number;
   private readonly pos: THREE.Vector3;
-  private readonly lookVec = new THREE.Vector3(-HALL_WIDTH / 2, WALL_Y, Z_START - 4);
+  private readonly lookVec: THREE.Vector3;
   private readonly raycaster = new THREE.Raycaster();
   private targetT = 0;
   private t = 0;
@@ -68,7 +68,8 @@ export class GalleryControls {
     // (voir three-mesh-bvh dans paintings.ts, acceleratedRaycast).
     this.raycaster.firstHitOnly = true;
 
-    this.pos = new THREE.Vector3(layout.pathX, 1.6, Z_START);
+    this.pos = new THREE.Vector3(layout.placed[0]?.viewX ?? 0, 1.6, layout.zFront - 1.1);
+    this.lookVec = new THREE.Vector3(this.pos.x, WALL_Y, this.pos.z - 4);
     // Trajet caméra = lerp en z (les points de l'ancien tracé étaient colinéaires) piloté
     // par la courbe de « dwell » : camZ = lerp(zFirst, zLast, dwell(t)).
     const path = cameraPath(layout);
@@ -167,10 +168,10 @@ export class GalleryControls {
       return;
     }
     // En mode libre, si la cible est de l'autre côté du hall, passer par un waypoint
-    // (pathX, p.z) : sinon le trajet en ligne droite traverse les portails/mobilier.
+    // l'axe médian, au z de la cible : sinon la ligne droite traverse murs et mobilier.
     const legs: FocusState[] =
       this.mode === 'free' && Math.abs(pos.x - p.viewX) > 2.5
-        ? [{ x: this.layout.pathX, z: p.viewZ, yaw: 0, pitch: this.pitch }, target]
+        ? [{ x: 0, z: p.viewZ, yaw: 0, pitch: this.pitch }, target]
         : [target];
     let leg = 0;
     const startLeg = (): void => {
@@ -215,7 +216,10 @@ export class GalleryControls {
       // et la détection de fin (main.ts) ne bougent pas : elles lisent le scroll / camZ.
       const tt = clamp(this.t, 0, 1);
       const d = this.reduced ? tt : this.dwell(tt);
-      this.pos.set(this.layout.pathX, 1.6, this.pathZFirst + (this.pathZLast - this.pathZFirst) * d);
+      const cz = this.pathZFirst + (this.pathZLast - this.pathZFirst) * d;
+      // x suit le mur de l'œuvre courante : la caméra se décale d'un mur à l'autre au lieu
+      // de longer une paroi unique.
+      this.pos.set(pathXAt(this.layout, cz), 1.6, cz);
       // défense en profondeur : jamais derrière le mur du fond
       this.pos.z = Math.max(this.pos.z, this.layout.zEnd + 1);
       this.camera.position.copy(this.pos);
@@ -250,7 +254,7 @@ export class GalleryControls {
       // capsule r=0.35, marge 0.02 → ±5.505) pour que fallback et physics aient les mêmes limites
       const xLimit = HALL_WIDTH / 2 - 0.5;
       pos.x = clamp(pos.x, -xLimit, xLimit);
-      pos.z = clamp(pos.z, this.layout.zEnd + 1, Z_START + 1.6);
+      pos.z = clamp(pos.z, this.layout.zBack + 1, this.layout.zFront + 0.6);
       pos.y = 1.6;
       this.pos.copy(pos);
       this.camera.rotation.order = 'YXZ';
@@ -258,9 +262,24 @@ export class GalleryControls {
     }
   }
 
+  /**
+   * Point visé par la caméra guidée : l'œuvre la plus proche, avec un **rabattement vers
+   * l'axe** quand on en est encore loin.
+   *
+   * Les toiles occupent les deux murs : viser directement une œuvre située à 5 m et
+   * 3,4 m de côté ferait passer le regard à travers le trumeau du seuil (on ne voyait
+   * qu'un mur blanc en arrivant dans le sas). Au-delà de 6,5 m, on regarde donc droit
+   * devant soi — par le passage — et l'on tourne vers la toile en approchant.
+   */
   private lookTarget(): THREE.Vector3 {
     const ps = this.layout.placed;
     if (ps.length === 0) return new THREE.Vector3(0, WALL_Y, this.pos.z - 4);
+    // Dans le sas, on regarde droit devant : c'est la vue d'entrée (le passage, puis la
+    // première salle). Viser une toile latérale depuis le sas cadrait le trumeau.
+    const lobby = this.layout.zones.find((z) => z.lobby);
+    if (lobby && this.pos.z > lobby.zMin) {
+      return new THREE.Vector3(0, WALL_Y, this.pos.z - 6);
+    }
     let best = ps[0];
     let bd = Infinity;
     for (const p of ps) {
@@ -270,7 +289,28 @@ export class GalleryControls {
         best = p;
       }
     }
-    return new THREE.Vector3(best.x, WALL_Y, best.z);
+    // Rabattement vers l'axe selon la distance, puis **test de visée à travers les
+    // seuils** : si le segment caméra → œuvre traverse un mur de seuil hors de son
+    // ouverture, on réduit la composante latérale jusqu'à ce que le regard passe par la
+    // porte. Sans cela, en arrivant dans le sas, on ne voyait qu'un trumeau blanc.
+    const k = clamp((6.5 - bd) / 3.5, 0, 1);
+    let tx = best.x * k;
+    const cz = this.pos.z;
+    const dzTotal = cz - best.z;
+    if (dzTotal > 0.05) {
+      for (const portal of portalPositions(this.layout)) {
+        const zp = portal.z;
+        if (zp > cz || zp < best.z) continue;
+        const t = (cz - zp) / dzTotal;
+        const allowed = Math.max(0.35, portal.openingHalf - 0.45);
+        // x au niveau du seuil = x_cam + (tx - x_cam) · t
+        const xAtPortal = this.pos.x + (tx - this.pos.x) * t;
+        if (Math.abs(xAtPortal) > allowed && t > 1e-3) {
+          tx = this.pos.x + ((Math.sign(xAtPortal) * allowed - this.pos.x) / t);
+        }
+      }
+    }
+    return new THREE.Vector3(tx, WALL_Y, best.z);
   }
 
   private readScroll(): void {

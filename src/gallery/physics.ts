@@ -15,7 +15,7 @@
  * (3 itérations), équivalent d'un character controller : la capsule est bloquée par
  * les murs/bancs/piliers/tableaux mais glisse le long des surfaces.
  */
-import { HALL_WIDTH, HALL_HEIGHT, Z_START, hallBounds, portalPositions, type Layout } from './layout';
+import { HALL_WIDTH, HALL_HEIGHT, hallBounds, portalPositions, type Layout } from './layout';
 
 import { furnitureColliders } from './furniture';
 
@@ -70,7 +70,8 @@ class RapierWorld implements PhysicsWorld {
       this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z));
     };
 
-    // 4 murs du hall (identiques à scene.ts : épaisseur 0.25, z = zMin/zMax)
+    // murs latéraux (une hauteur par salle, mais un collider de hauteur max suffit :
+    // la capsule s'arrête à 1,65 m) + murs d'about
     fixed(0.125, HALL_HEIGHT / 2, len / 2, -HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
     fixed(0.125, HALL_HEIGHT / 2, len / 2, HALL_WIDTH / 2, HALL_HEIGHT / 2, cz);
     fixed((HALL_WIDTH + 0.5) / 2, HALL_HEIGHT / 2, 0.125, 0, HALL_HEIGHT / 2, zMax);
@@ -86,16 +87,23 @@ class RapierWorld implements PhysicsWorld {
       fixed(c.hx, c.hy, c.hz, c.x, c.y, c.z);
     }
 
-    // portails entre salles (piliers p1/p2 + linteau, mêmes z que scene.ts via portalPositions)
+    // murs de seuil entre salles : deux trumeaux + linteau (mêmes cotes que scene.ts,
+    // via portalPositions : une seule source de vérité pour le visuel et la physique)
     for (const portal of portalPositions(layout)) {
       const z = portal.z;
-      fixed(0.175, HALL_HEIGHT / 2, 0.175, -(HALL_WIDTH / 2 - 0.3), HALL_HEIGHT / 2, z); // p1
-      fixed(0.175, HALL_HEIGHT / 2, 0.175, HALL_WIDTH / 2 - 0.3, HALL_HEIGHT / 2, z); // p2
-      fixed((HALL_WIDTH - 0.6) / 2, 0.225, 0.175, 0, HALL_HEIGHT - 0.225, z); // linteau
+      const half = portal.openingHalf;
+      const jambW = HALL_WIDTH / 2 - half;
+      for (const sx of [-1, 1]) {
+        fixed(jambW / 2, portal.openingH / 2, 0.12, sx * (half + jambW / 2), portal.openingH / 2, z);
+      }
+      const lintelH = portal.height - portal.openingH;
+      if (lintelH > 0.05) {
+        fixed(half, lintelH / 2, 0.12, 0, portal.openingH + lintelH / 2, z);
+      }
     }
 
-    // un collider par tableau : quelle que soit la rotation (±π/2), la largeur p.w
-    // s'étend selon z et la profondeur du cadre selon x → hx=0.04, hz=(p.w+0.16)/2
+    // un collider par tableau : la largeur p.w s'étend selon z, la profondeur du cadre
+    // selon x (les toiles sont sur les deux murs) → hx=0.04, hz=(p.w+0.16)/2
     for (const p of layout.placed) {
       fixed(0.04, (p.h + 0.16) / 2, (p.w + 0.16) / 2, p.x, p.y, p.z);
     }
@@ -103,7 +111,7 @@ class RapierWorld implements PhysicsWorld {
     // joueur : rigid body kinématique (capsule), rotations verrouillées, y fixé à 1.6
     this.body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased()
-        .setTranslation(layout.pathX, PLAYER_Y, Z_START)
+        .setTranslation(0, PLAYER_Y, layout.zFront - 1.2)
         .lockRotations(),
     );
     this.collider = this.world.createCollider(
